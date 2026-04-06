@@ -36,9 +36,12 @@ class TokenBundle:
 
     def is_stale(self, *, now: datetime | None = None) -> bool:
         if self.expires_at is None:
-            return False
+            return True
         current_time = self._normalize_datetime(now or datetime.now(UTC))
-        return current_time >= self.expires_at_datetime
+        try:
+            return current_time >= self.expires_at_datetime
+        except ValueError:
+            return True
 
     @property
     def expires_at_datetime(self) -> datetime:
