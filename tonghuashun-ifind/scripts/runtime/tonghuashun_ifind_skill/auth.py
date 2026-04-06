@@ -34,17 +34,27 @@ class AuthManager:
             browser_login=browser_login,
         )
 
-    def resolve_tokens(self) -> tuple[TokenBundle, Literal["cache", "refresh"]]:
+    def resolve_tokens(
+        self,
+    ) -> tuple[TokenBundle, Literal["cache", "refresh", "playwright"]]:
         bundle = self.state_store.load()
-        if bundle is None:
-            raise RuntimeError("no cached tokens")
-        if not bundle.is_stale():
+        if bundle is not None and not bundle.is_stale():
             return bundle, "cache"
+
+        if bundle is None:
+            return self._login_with_browser()
+
         if not bundle.refresh_token:
-            raise RuntimeError("stale tokens without refresh")
+            return self._login_with_browser()
+
         try:
             refreshed = self.refresh_exchange(bundle.refresh_token)
-        except Exception as exc:
-            raise RuntimeError("refresh exchange failed") from exc
+        except Exception:
+            return self._login_with_browser()
         self.state_store.save(refreshed)
         return refreshed, "refresh"
+
+    def _login_with_browser(self) -> tuple[TokenBundle, Literal["playwright"]]:
+        bundle = self.browser_login()
+        self.state_store.save(bundle)
+        return bundle, "playwright"
