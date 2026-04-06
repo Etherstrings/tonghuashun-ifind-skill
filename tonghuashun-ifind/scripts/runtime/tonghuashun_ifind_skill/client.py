@@ -178,3 +178,41 @@ class IFindClient:
     def _sanitize_exception_message(exc: Exception) -> str:
         exc_name = exc.__class__.__name__
         return f"request failed: {exc_name}"
+
+
+def build_envelope(
+    *,
+    ok: bool,
+    endpoint: str,
+    token_source: str,
+    data: object | None = None,
+    error_type: str | None = None,
+    error_message: str | None = None,
+    errorcode: int | str | None = None,
+    errmsg: str | None = None,
+    now: Callable[[], datetime] | datetime | None = None,
+) -> dict[str, object]:
+    if callable(now):
+        timestamp = format_timestamp(now())
+    elif isinstance(now, datetime):
+        timestamp = format_timestamp(now)
+    else:
+        timestamp = format_timestamp()
+
+    error = None
+    if not ok:
+        error = ErrorPayload(
+            type=error_type or "runtime_failed",
+            message=error_message or "request failed",
+            errorcode=errorcode,
+            errmsg=errmsg,
+        )
+    envelope = ResponseEnvelope(
+        ok=ok,
+        endpoint=endpoint,
+        token_source=token_source,
+        data=data,
+        error=error,
+        meta=ResponseMeta(timestamp=timestamp),
+    )
+    return envelope.to_dict()

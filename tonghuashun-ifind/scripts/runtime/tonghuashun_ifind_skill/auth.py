@@ -34,6 +34,20 @@ class AuthManager:
             browser_login=browser_login,
         )
 
+    @classmethod
+    def create(
+        cls,
+        *,
+        state_path: Path,
+        refresh_exchange: Callable[[str], TokenBundle],
+        browser_login: Callable[[], TokenBundle],
+    ) -> "AuthManager":
+        return cls(
+            state_store=TokenStateStore(state_path),
+            refresh_exchange=refresh_exchange,
+            browser_login=browser_login,
+        )
+
     def resolve_tokens(
         self,
     ) -> tuple[TokenBundle, Literal["cache", "refresh", "playwright"]]:
@@ -54,7 +68,10 @@ class AuthManager:
         self.state_store.save(refreshed)
         return refreshed, "refresh"
 
-    def _login_with_browser(self) -> tuple[TokenBundle, Literal["playwright"]]:
+    def login_with_browser(self) -> tuple[TokenBundle, Literal["playwright"]]:
         bundle = self.browser_login()
         self.state_store.save(bundle)
         return bundle, "playwright"
+
+    def _login_with_browser(self) -> tuple[TokenBundle, Literal["playwright"]]:
+        return self.login_with_browser()
