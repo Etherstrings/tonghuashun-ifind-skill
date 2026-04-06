@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from datetime import UTC
 from datetime import datetime
 from datetime import timedelta
+import json
 from typing import Any
 from typing import Mapping
 from typing import Protocol
@@ -192,11 +193,20 @@ _EXPIRES_IN_KEYS = ("expires_in", "expiresIn")
 
 
 def _extract_candidate(candidate: Mapping[str, Any]) -> TokenCandidate:
-    access_token = _first_text(candidate, _ACCESS_KEYS)
-    refresh_token = _first_text(candidate, _REFRESH_KEYS)
-    expires_at = _first_text(candidate, _EXPIRES_AT_KEYS)
-    if expires_at is None:
-        expires_at = _expires_at_from_seconds(candidate)
+    access_token: str | None = None
+    refresh_token: str | None = None
+    expires_at: str | None = None
+    for payload in _iter_candidate_maps(candidate):
+        if access_token is None:
+            access_token = _first_text(payload, _ACCESS_KEYS)
+        if refresh_token is None:
+            refresh_token = _first_text(payload, _REFRESH_KEYS)
+        if expires_at is None:
+            expires_at = _first_text(payload, _EXPIRES_AT_KEYS)
+            if expires_at is None:
+                expires_at = _expires_at_from_seconds(payload)
+        if access_token and refresh_token and expires_at is not None:
+            break
     return TokenCandidate(access_token, refresh_token, expires_at)
 
 
@@ -226,4 +236,55 @@ def _coerce_int(value: Any) -> int | None:
         stripped = value.strip()
         if stripped.isdigit():
             return int(stripped)
+    return None
+
+
+def _iter_candidate_maps(candidate: Mapping[str, Any]) -> list[Mapping[str, Any]]:
+    pending: list[Mapping[str, Any]] = [candidate]
+    collected: list[Mapping[str, Any]] = []
+    seen: set[int] = set()
+
+    while pending:
+        current = pending.pop(0)
+        current_id = id(current)
+        if current_id in seen:
+            continue
+        seen.add(current_id)
+        collected.append(current)
+
+        for value in current.values():
+            if isinstance(value, Mapping):
+                pending.append(value)
+                continue
+            if isinstance(value, (list, tuple)):
+                for item in value:
+                    if isinstance(item, Mapping):
+                        pending.append(item)
+                    elif isinstance(item, str):
+                        parsed = _parse_json_mapping(item)
+                        if parsed is not None:
+                            pending.append(parsed)
+                continue
+            if isinstance(value, str):
+                parsed = _parse_json_mapping(value)
+                if parsed is not None:
+                    pending.append(parsed)
+
+    return collected
+
+
+def _parse_json_mapping(value: str) -> Mapping[str, Any] | None:
+    stripped = value.strip()
+    if not stripped.startswith(("{", "[")):
+        return None
+    try:
+        parsed = json.loads(stripped)
+    except json.JSONDecodeError:
+        return None
+    if isinstance(parsed, Mapping):
+        return parsed
+    if isinstance(parsed, list):
+        for item in parsed:
+            if isinstance(item, Mapping):
+                return item
     return None
