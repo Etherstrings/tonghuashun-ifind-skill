@@ -44,9 +44,6 @@ class IFindClient:
                 headers=headers,
                 timeout=self.timeout,
             )
-            if hasattr(response, "raise_for_status"):
-                response.raise_for_status()
-            body = response.json()
         except Exception as exc:
             envelope = ResponseEnvelope(
                 ok=False,
@@ -58,7 +55,38 @@ class IFindClient:
             )
             return envelope.to_dict()
 
+        status_code = getattr(response, "status_code", 200)
+        try:
+            body = response.json()
+        except Exception as exc:
+            error_message = str(exc) if status_code < 400 else f"http error {status_code}"
+            envelope = ResponseEnvelope(
+                ok=False,
+                endpoint=normalized_endpoint,
+                token_source=token_source,
+                data=None,
+                error=ErrorPayload(type="runtime_failed", message=error_message),
+                meta=ResponseMeta(timestamp=timestamp),
+            )
+            return envelope.to_dict()
+
         error = self._extract_error(body)
+        if status_code >= 400:
+            if error is None:
+                error = ErrorPayload(
+                    type="runtime_failed",
+                    message=f"http error {status_code}",
+                )
+            envelope = ResponseEnvelope(
+                ok=False,
+                endpoint=normalized_endpoint,
+                token_source=token_source,
+                data=None,
+                error=error,
+                meta=ResponseMeta(timestamp=timestamp),
+            )
+            return envelope.to_dict()
+
         envelope = ResponseEnvelope(
             ok=error is None,
             endpoint=normalized_endpoint,

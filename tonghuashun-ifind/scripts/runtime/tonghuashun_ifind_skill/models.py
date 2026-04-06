@@ -115,5 +115,10 @@ class ResponseEnvelope:
 
 
 def format_timestamp(now: datetime | None = None) -> str:
-    current = (now or datetime.now(UTC)).astimezone(UTC).replace(microsecond=0)
+    current = now or datetime.now(UTC)
+    if current.tzinfo is None:
+        current = current.replace(tzinfo=UTC)
+    else:
+        current = current.astimezone(UTC)
+    current = current.replace(microsecond=0)
     return current.isoformat().replace("+00:00", "Z")

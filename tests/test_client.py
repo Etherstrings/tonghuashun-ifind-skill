@@ -1,3 +1,5 @@
+from datetime import datetime
+
 import pytest
 
 from tonghuashun_ifind_skill.client import IFindClient
@@ -63,6 +65,29 @@ def test_api_call_posts_to_requested_endpoint(fake_session: FakeSession) -> None
     )
     assert result["ok"] is True
     assert result["endpoint"] == "/basic_data_service"
+    assert result["data"] == {"errorcode": 0, "errmsg": "OK", "data": {}}
+
+
+def test_api_call_forwards_headers_payload_and_timeout(
+    fake_session: FakeSession,
+) -> None:
+    client = IFindClient(
+        base_url="https://quantapi.51ifind.com/api/v1",
+        session=fake_session,
+        timeout=12.5,
+    )
+
+    client.api_call(
+        endpoint="/basic_data_service",
+        payload={"codes": "300750.SZ", "k": 1},
+        access_token="access-demo",
+        token_source="cache",
+    )
+
+    request = fake_session.requests[-1]
+    assert request["headers"] == {"access_token": "access-demo"}
+    assert request["json"] == {"codes": "300750.SZ", "k": 1}
+    assert request["timeout"] == 12.5
 
 
 @pytest.mark.parametrize(
@@ -114,3 +139,44 @@ def test_api_call_preserves_ifind_business_error(fake_session: FakeSession) -> N
     assert result["ok"] is False
     assert result["error"]["errorcode"] == 1001
     assert result["error"]["errmsg"] == "bad param"
+
+
+def test_api_call_preserves_ifind_business_error_on_http_error(
+    fake_session: FakeSession,
+) -> None:
+    client = IFindClient(
+        base_url="https://quantapi.51ifind.com/api/v1",
+        session=fake_session,
+    )
+    fake_session.queue_response(
+        {"errorcode": 2001, "errmsg": "token invalid"},
+        status_code=401,
+    )
+
+    result = client.api_call(
+        endpoint="/basic_data_service",
+        payload={"codes": "300750.SZ"},
+        access_token="access-demo",
+        token_source="cache",
+    )
+
+    assert result["ok"] is False
+    assert result["error"]["errorcode"] == 2001
+    assert result["error"]["errmsg"] == "token invalid"
+
+
+def test_api_call_handles_naive_now(fake_session: FakeSession) -> None:
+    client = IFindClient(
+        base_url="https://quantapi.51ifind.com/api/v1",
+        session=fake_session,
+        now=lambda: datetime(2026, 1, 2, 3, 4, 5),
+    )
+
+    result = client.api_call(
+        endpoint="/basic_data_service",
+        payload={"codes": "300750.SZ"},
+        access_token="access-demo",
+        token_source="cache",
+    )
+
+    assert result["meta"]["timestamp"] == "2026-01-02T03:04:05Z"
