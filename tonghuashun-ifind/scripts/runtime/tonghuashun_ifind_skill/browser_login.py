@@ -171,9 +171,9 @@ def extract_token_bundle(
                 refresh_token = token_candidate.refresh_token
             if expires_at is None and token_candidate.expires_at:
                 expires_at = token_candidate.expires_at
-            if access_token and refresh_token:
+            if access_token and refresh_token and expires_at is not None:
                 break
-        if access_token and refresh_token:
+        if access_token and refresh_token and expires_at is not None:
             break
 
     if not access_token or not refresh_token:

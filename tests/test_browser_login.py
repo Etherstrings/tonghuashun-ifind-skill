@@ -58,3 +58,18 @@ def test_extract_token_bundle_parses_json_string_storage_values():
     )
     assert bundle.access_token == "access-json"
     assert bundle.refresh_token == "refresh-json"
+
+
+def test_extract_token_bundle_carries_expiry_from_later_candidate():
+    bundle = extract_token_bundle(
+        response_candidates=[
+            {"access_token": "access-early", "refresh_token": "refresh-early"},
+            {"expires_in": 3600},
+        ],
+        request_header_candidates=[],
+        storage_candidates=[],
+        cookie_candidates=[],
+    )
+    assert bundle.access_token == "access-early"
+    assert bundle.refresh_token == "refresh-early"
+    assert bundle.expires_at is not None
