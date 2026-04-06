@@ -8,9 +8,22 @@ version = "0.1.0"
 description = "Scaffold for Tonghuashun iFind skill CLI."
 readme = "README.md"
 requires-python = ">=3.12"
-dependencies = [
+dependencies = []
+
+[dependency-groups]
+dev = [
     "pytest>=9.0.0",
 ]
 
+[tool.pytest.ini_options]
+pythonpath = [
+    "tonghuashun-ifind/scripts/runtime",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = [
+    "tonghuashun-ifind/scripts/runtime/tonghuashun_ifind_skill",
+]
+
 [tool.uv]
-package = false
+default-groups = ["dev"]

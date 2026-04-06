@@ -2,3 +2,15 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 .venv/
+
+# Playwright artifacts
+playwright-report/
+test-results/
+playwright/.auth/
+.auth/
+*.auth-state.json
+*.storage-state.json
+
+# Local token state artifacts
+tokens.json
+token_state*.json
