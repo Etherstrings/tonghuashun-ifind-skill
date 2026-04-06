@@ -84,7 +84,7 @@ class IFindClient:
         token_source: str,
     ) -> dict[str, object]:
         return self.api_call(
-            "/smart_stock_picking_service",
+            "/smart_stock_picking",
             payload,
             access_token,
             token_source,
@@ -96,7 +96,7 @@ class IFindClient:
         access_token: str,
         token_source: str,
     ) -> dict[str, object]:
-        return self.api_call("/report_query_service", payload, access_token, token_source)
+        return self.api_call("/report_query", payload, access_token, token_source)
 
     def date_sequence(
         self,
@@ -105,7 +105,7 @@ class IFindClient:
         token_source: str,
     ) -> dict[str, object]:
         return self.api_call(
-            "/date_sequence_service",
+            "/date_sequence",
             payload,
             access_token,
             token_source,

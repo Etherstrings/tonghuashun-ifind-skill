@@ -69,9 +69,9 @@ def test_api_call_posts_to_requested_endpoint(fake_session: FakeSession) -> None
     ("method_name", "endpoint"),
     [
         ("basic_data", "/basic_data_service"),
-        ("smart_stock_picking", "/smart_stock_picking_service"),
-        ("report_query", "/report_query_service"),
-        ("date_sequence", "/date_sequence_service"),
+        ("smart_stock_picking", "/smart_stock_picking"),
+        ("report_query", "/report_query"),
+        ("date_sequence", "/date_sequence"),
     ],
 )
 def test_wrapper_methods_forward_endpoint(
