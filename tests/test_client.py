@@ -22,9 +22,13 @@ class FakeSession:
     def __init__(self) -> None:
         self.requests: list[dict[str, object]] = []
         self._responses: list[FakeResponse] = []
+        self._post_exception: Exception | None = None
 
     def queue_response(self, payload: object, *, status_code: int = 200) -> None:
         self._responses.append(FakeResponse(payload, status_code=status_code))
+
+    def queue_exception(self, exc: Exception) -> None:
+        self._post_exception = exc
 
     def post(
         self,
@@ -42,6 +46,10 @@ class FakeSession:
                 "timeout": timeout,
             }
         )
+        if self._post_exception is not None:
+            exc = self._post_exception
+            self._post_exception = None
+            raise exc
         if self._responses:
             return self._responses.pop(0)
         return FakeResponse({"errorcode": 0, "errmsg": "OK", "data": {}})
@@ -180,3 +188,25 @@ def test_api_call_handles_naive_now(fake_session: FakeSession) -> None:
     )
 
     assert result["meta"]["timestamp"] == "2026-01-02T03:04:05Z"
+
+
+def test_api_call_sanitizes_request_exception_message(
+    fake_session: FakeSession,
+) -> None:
+    client = IFindClient(
+        base_url="https://quantapi.51ifind.com/api/v1",
+        session=fake_session,
+    )
+    fake_session.queue_exception(
+        RuntimeError("request failed for access-demo header")
+    )
+
+    result = client.api_call(
+        endpoint="/basic_data_service",
+        payload={"codes": "300750.SZ"},
+        access_token="access-demo",
+        token_source="cache",
+    )
+
+    assert result["ok"] is False
+    assert "access-demo" not in result["error"]["message"]

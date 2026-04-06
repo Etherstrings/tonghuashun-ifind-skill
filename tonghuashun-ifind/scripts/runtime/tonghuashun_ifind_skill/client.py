@@ -50,7 +50,10 @@ class IFindClient:
                 endpoint=normalized_endpoint,
                 token_source=token_source,
                 data=None,
-                error=ErrorPayload(type="runtime_failed", message=str(exc)),
+                error=ErrorPayload(
+                    type="runtime_failed",
+                    message=self._sanitize_exception_message(exc),
+                ),
                 meta=ResponseMeta(timestamp=timestamp),
             )
             return envelope.to_dict()
@@ -170,3 +173,8 @@ class IFindClient:
             errorcode=errorcode,
             errmsg=errmsg if isinstance(errmsg, str) else None,
         )
+
+    @staticmethod
+    def _sanitize_exception_message(exc: Exception) -> str:
+        exc_name = exc.__class__.__name__
+        return f"request failed: {exc_name}"
