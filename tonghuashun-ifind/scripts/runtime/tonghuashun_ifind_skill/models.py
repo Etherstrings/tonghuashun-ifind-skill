@@ -65,3 +65,55 @@ class TokenBundle:
         if not isinstance(value, str):
             raise ValueError(f"{key} must be a string")
         return value
+
+
+@dataclass(slots=True)
+class ErrorPayload:
+    type: str
+    message: str
+    errorcode: int | str | None = None
+    errmsg: str | None = None
+
+    def to_dict(self) -> dict[str, object]:
+        payload: dict[str, object] = {
+            "type": self.type,
+            "message": self.message,
+        }
+        if self.errorcode is not None:
+            payload["errorcode"] = self.errorcode
+        if self.errmsg is not None:
+            payload["errmsg"] = self.errmsg
+        return payload
+
+
+@dataclass(slots=True)
+class ResponseMeta:
+    timestamp: str
+
+    def to_dict(self) -> dict[str, str]:
+        return {"timestamp": self.timestamp}
+
+
+@dataclass(slots=True)
+class ResponseEnvelope:
+    ok: bool
+    endpoint: str
+    token_source: str
+    data: object | None
+    error: ErrorPayload | None
+    meta: ResponseMeta
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "ok": self.ok,
+            "endpoint": self.endpoint,
+            "token_source": self.token_source,
+            "data": self.data,
+            "error": None if self.error is None else self.error.to_dict(),
+            "meta": self.meta.to_dict(),
+        }
+
+
+def format_timestamp(now: datetime | None = None) -> str:
+    current = (now or datetime.now(UTC)).astimezone(UTC).replace(microsecond=0)
+    return current.isoformat().replace("+00:00", "Z")
