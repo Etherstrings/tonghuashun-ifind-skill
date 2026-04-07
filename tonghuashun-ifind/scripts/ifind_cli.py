@@ -25,6 +25,7 @@ DEFAULT_LOGIN_URL = (
 DEFAULT_USERNAME_SELECTOR = 'input[name="username"]'
 DEFAULT_PASSWORD_SELECTOR = 'input[name="password"]'
 DEFAULT_SUBMIT_SELECTOR = 'button[type="submit"]'
+DEFAULT_BROWSER_EXECUTABLE = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -101,6 +102,10 @@ def _build_parser() -> argparse.ArgumentParser:
     auth_login.add_argument("--username-selector", default=DEFAULT_USERNAME_SELECTOR)
     auth_login.add_argument("--password-selector", default=DEFAULT_PASSWORD_SELECTOR)
     auth_login.add_argument("--submit-selector", default=DEFAULT_SUBMIT_SELECTOR)
+    auth_login.add_argument(
+        "--browser-executable",
+        default=DEFAULT_BROWSER_EXECUTABLE,
+    )
 
     auth_set = subparsers.add_parser("auth-set-tokens")
     auth_set.add_argument("--access-token", required=True)
@@ -116,6 +121,10 @@ def _build_parser() -> argparse.ArgumentParser:
     api_common.add_argument("--username-selector", default=DEFAULT_USERNAME_SELECTOR)
     api_common.add_argument("--password-selector", default=DEFAULT_PASSWORD_SELECTOR)
     api_common.add_argument("--submit-selector", default=DEFAULT_SUBMIT_SELECTOR)
+    api_common.add_argument(
+        "--browser-executable",
+        default=DEFAULT_BROWSER_EXECUTABLE,
+    )
 
     api_call = subparsers.add_parser("api-call", parents=[api_common])
     api_call.add_argument("--endpoint", required=True)
@@ -165,6 +174,8 @@ def _handle_auth_login(
         username_selector=args.username_selector,
         password_selector=args.password_selector,
         submit_selector=args.submit_selector,
+        browser_executable=args.browser_executable,
+        base_url=DEFAULT_BASE_URL,
     )
     bundle, token_source = auth.login_with_browser()
     return build_envelope(
@@ -191,6 +202,8 @@ def _handle_api_command(
         username_selector=args.username_selector,
         password_selector=args.password_selector,
         submit_selector=args.submit_selector,
+        browser_executable=args.browser_executable,
+        base_url=args.base_url,
     )
     bundle, token_source = auth.resolve_tokens()
     client = IFindClient(base_url=args.base_url)
@@ -229,14 +242,20 @@ def _build_auth_manager(
     username_selector: str,
     password_selector: str,
     submit_selector: str,
+    browser_executable: str | None,
+    base_url: str,
 ) -> "AuthManager":
     from tonghuashun_ifind_skill.auth import AuthManager
     from tonghuashun_ifind_skill.browser_login import BrowserLoginRunner
     from tonghuashun_ifind_skill.browser_login import PlaywrightLoginAdapter
+    from tonghuashun_ifind_skill.auth import exchange_refresh_token
     from tonghuashun_ifind_skill.models import TokenBundle
 
-    def refresh_exchange(_: str) -> TokenBundle:
-        raise RuntimeError("refresh exchange is not configured")
+    def refresh_exchange(refresh_token: str) -> TokenBundle:
+        return exchange_refresh_token(
+            refresh_token,
+            base_url=base_url,
+        )
 
     def browser_login() -> TokenBundle:
         if not username or not password:
@@ -246,6 +265,7 @@ def _build_auth_manager(
             username_selector=username_selector,
             password_selector=password_selector,
             submit_selector=submit_selector,
+            browser_executable=browser_executable,
         )
         runner = BrowserLoginRunner(adapter)
         return runner.login_and_capture(username, password)

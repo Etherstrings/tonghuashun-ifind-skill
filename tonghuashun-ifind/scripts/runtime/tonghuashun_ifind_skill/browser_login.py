@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC
 from datetime import datetime
 from datetime import timedelta
+from datetime import timezone
 import json
+import os
+from pathlib import Path
 from typing import Any
 from typing import Mapping
 from typing import Protocol
@@ -12,7 +14,7 @@ from typing import Protocol
 from tonghuashun_ifind_skill.models import TokenBundle
 
 
-@dataclass(slots=True)
+@dataclass
 class TokenCapture:
     response_candidates: list[Mapping[str, Any]]
     request_header_candidates: list[Mapping[str, Any]]
@@ -25,7 +27,7 @@ class BrowserLoginAdapter(Protocol):
         ...
 
 
-@dataclass(slots=True)
+@dataclass
 class TokenCandidate:
     access_token: str | None
     refresh_token: str | None
@@ -54,6 +56,7 @@ class PlaywrightLoginAdapter:
         username_selector: str,
         password_selector: str,
         submit_selector: str,
+        browser_executable: str | None = None,
         headless: bool = True,
         timeout_ms: int = 30_000,
     ) -> None:
@@ -61,6 +64,7 @@ class PlaywrightLoginAdapter:
         self.username_selector = username_selector
         self.password_selector = password_selector
         self.submit_selector = submit_selector
+        self.browser_executable = browser_executable
         self.headless = headless
         self.timeout_ms = timeout_ms
 
@@ -73,7 +77,10 @@ class PlaywrightLoginAdapter:
         cookie_candidates: list[Mapping[str, Any]] = []
 
         with sync_playwright() as playwright:
-            browser = playwright.chromium.launch(headless=self.headless)
+            browser = playwright.chromium.launch(
+                executable_path=resolve_browser_executable(self.browser_executable),
+                headless=self.headless,
+            )
             context = browser.new_context()
             page = context.new_page()
 
@@ -144,6 +151,33 @@ class PlaywrightLoginAdapter:
             storage_candidates=storage_candidates,
             cookie_candidates=cookie_candidates,
         )
+
+
+DEFAULT_BROWSER_EXECUTABLES = (
+    Path("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"),
+)
+
+
+def resolve_browser_executable(browser_executable: str | None = None) -> str:
+    candidates: list[Path] = []
+
+    if browser_executable:
+        candidates.append(Path(browser_executable).expanduser())
+
+    env_browser = os.environ.get("IFIND_BROWSER_EXECUTABLE")
+    if env_browser:
+        candidates.append(Path(env_browser).expanduser())
+
+    candidates.extend(DEFAULT_BROWSER_EXECUTABLES)
+
+    for candidate in candidates:
+        if candidate.is_file():
+            return str(candidate)
+
+    raise RuntimeError(
+        "no supported browser executable found; set IFIND_BROWSER_EXECUTABLE "
+        "or provide browser_executable"
+    )
 
 
 def extract_token_bundle(
@@ -224,7 +258,7 @@ def _expires_at_from_seconds(candidate: Mapping[str, Any]) -> str | None:
         seconds = _coerce_int(value)
         if seconds is None:
             continue
-        expires_at = datetime.now(UTC) + timedelta(seconds=seconds)
+        expires_at = datetime.now(timezone.utc) + timedelta(seconds=seconds)
         return expires_at.replace(microsecond=0).isoformat().replace("+00:00", "Z")
     return None
 

@@ -1,0 +1,7 @@
+interface:
+  display_name: "同花顺 iFinD 接入"
+  short_description: "优先通过 iFinD OpenAPI 获取证券、财务、研报、选股与日期等数据，支持缓存、手动注入和本地浏览器抓 token。"
+  default_prompt: "当用户需要同花顺 iFinD 可提供的市场、财务、研报、选股或日期数据时，优先使用 $tonghuashun-ifind，并尽量先走原始 api-call。"
+
+policy:
+  allow_implicit_invocation: true

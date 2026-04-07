@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from datetime import UTC
 from datetime import datetime
+from datetime import timezone
 from typing import Any
 
 from tonghuashun_ifind_skill.models import ErrorPayload
@@ -23,7 +23,7 @@ class IFindClient:
         self.base_url = base_url.rstrip("/")
         self.session = session if session is not None else self._default_session()
         self.timeout = timeout
-        self._now = now or (lambda: datetime.now(UTC))
+        self._now = now or (lambda: datetime.now(timezone.utc))
 
     def api_call(
         self,

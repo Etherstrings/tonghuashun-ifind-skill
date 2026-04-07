@@ -1,5 +1,5 @@
-from datetime import UTC
 from datetime import datetime
+from datetime import timezone
 from pathlib import Path
 
 import pytest
@@ -52,8 +52,12 @@ def test_token_bundle_is_stale_with_timezone_aware_now():
         expires_at="2026-04-06T12:00:00Z",
     )
 
-    assert bundle.is_stale(now=datetime(2026, 4, 6, 11, 59, 59, tzinfo=UTC)) is False
-    assert bundle.is_stale(now=datetime(2026, 4, 6, 12, 0, 0, tzinfo=UTC)) is True
+    assert bundle.is_stale(
+        now=datetime(2026, 4, 6, 11, 59, 59, tzinfo=timezone.utc)
+    ) is False
+    assert bundle.is_stale(
+        now=datetime(2026, 4, 6, 12, 0, 0, tzinfo=timezone.utc)
+    ) is True
 
 
 def test_token_bundle_is_stale_accepts_naive_now():
@@ -73,7 +77,9 @@ def test_token_bundle_without_expiry_is_treated_as_stale():
         expires_at=None,
     )
 
-    assert bundle.is_stale(now=datetime(2026, 4, 6, 12, 0, 1, tzinfo=UTC)) is True
+    assert bundle.is_stale(
+        now=datetime(2026, 4, 6, 12, 0, 1, tzinfo=timezone.utc)
+    ) is True
 
 
 def test_token_bundle_with_invalid_expiry_is_treated_as_stale():
@@ -83,7 +89,9 @@ def test_token_bundle_with_invalid_expiry_is_treated_as_stale():
         expires_at="not-a-datetime",
     )
 
-    assert bundle.is_stale(now=datetime(2026, 4, 6, 12, 0, 1, tzinfo=UTC)) is True
+    assert bundle.is_stale(
+        now=datetime(2026, 4, 6, 12, 0, 1, tzinfo=timezone.utc)
+    ) is True
 
 
 def test_state_store_loads_invalid_expiry_as_stale_bundle(tmp_path: Path):
@@ -97,7 +105,9 @@ def test_state_store_loads_invalid_expiry_as_stale_bundle(tmp_path: Path):
     loaded = store.load()
 
     assert loaded is not None
-    assert loaded.is_stale(now=datetime(2026, 4, 6, 12, 0, 1, tzinfo=UTC)) is True
+    assert loaded.is_stale(
+        now=datetime(2026, 4, 6, 12, 0, 1, tzinfo=timezone.utc)
+    ) is True
 
 
 def test_token_bundle_from_dict_rejects_invalid_state():

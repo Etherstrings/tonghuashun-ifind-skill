@@ -1,10 +1,16 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from datetime import datetime
+from datetime import timedelta
+from datetime import timezone
 from pathlib import Path
 from typing import Literal
 
+import requests
+
 from tonghuashun_ifind_skill.models import TokenBundle
+from tonghuashun_ifind_skill.models import format_timestamp
 from tonghuashun_ifind_skill.state import TokenStateStore
 
 
@@ -75,3 +81,60 @@ class AuthManager:
 
     def _login_with_browser(self) -> tuple[TokenBundle, Literal["playwright"]]:
         return self.login_with_browser()
+
+
+def exchange_refresh_token(
+    refresh_token: str,
+    *,
+    base_url: str,
+    timeout: float = 10.0,
+    now: Callable[[], datetime] | None = None,
+) -> TokenBundle:
+    response = requests.post(
+        f"{base_url.rstrip('/')}/get_access_token",
+        json={},
+        headers={"refresh_token": refresh_token},
+        timeout=timeout,
+    )
+    response.raise_for_status()
+
+    access_token, expires_in = _parse_refresh_payload(response.json())
+    return TokenBundle(
+        access_token=access_token,
+        refresh_token=refresh_token,
+        expires_at=_resolve_refresh_expiry(expires_in, now=now),
+    )
+
+
+def _parse_refresh_payload(payload: object) -> tuple[str, int]:
+    if not isinstance(payload, dict):
+        raise ValueError("iFinD auth response must be a JSON object")
+
+    data = payload.get("data")
+    if not isinstance(data, dict):
+        raise ValueError("iFinD auth response missing data object")
+
+    access_token = data.get("access_token")
+    if not isinstance(access_token, str) or not access_token:
+        raise ValueError("iFinD auth response missing access_token")
+
+    expires_in_raw = data.get("expires_in", 0)
+    try:
+        expires_in = int(expires_in_raw)
+    except (TypeError, ValueError):
+        expires_in = 0
+    return access_token, expires_in
+
+
+def _resolve_refresh_expiry(
+    expires_in: int,
+    *,
+    now: Callable[[], datetime] | None = None,
+) -> str:
+    current = now() if now is not None else datetime.now(timezone.utc)
+    if current.tzinfo is None:
+        current = current.replace(tzinfo=timezone.utc)
+    else:
+        current = current.astimezone(timezone.utc)
+    expires_at = current + timedelta(seconds=max(expires_in - 30, 0))
+    return format_timestamp(expires_at)

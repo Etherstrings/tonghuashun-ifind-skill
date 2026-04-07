@@ -2,12 +2,12 @@ from __future__ import annotations
 
 from dataclasses import asdict
 from dataclasses import dataclass
-from datetime import UTC
 from datetime import datetime
+from datetime import timezone
 from typing import Any
 
 
-@dataclass(slots=True)
+@dataclass
 class TokenBundle:
     access_token: str
     refresh_token: str
@@ -37,7 +37,7 @@ class TokenBundle:
     def is_stale(self, *, now: datetime | None = None) -> bool:
         if self.expires_at is None:
             return True
-        current_time = self._normalize_datetime(now or datetime.now(UTC))
+        current_time = self._normalize_datetime(now or datetime.now(timezone.utc))
         try:
             return current_time >= self.expires_at_datetime
         except ValueError:
@@ -56,8 +56,8 @@ class TokenBundle:
     @staticmethod
     def _normalize_datetime(value: datetime) -> datetime:
         if value.tzinfo is None:
-            return value.replace(tzinfo=UTC)
-        return value.astimezone(UTC)
+            return value.replace(tzinfo=timezone.utc)
+        return value.astimezone(timezone.utc)
 
     @staticmethod
     def _require_text(data: dict[str, Any], key: str) -> str:
@@ -67,7 +67,7 @@ class TokenBundle:
         return value
 
 
-@dataclass(slots=True)
+@dataclass
 class ErrorPayload:
     type: str
     message: str
@@ -86,7 +86,7 @@ class ErrorPayload:
         return payload
 
 
-@dataclass(slots=True)
+@dataclass
 class ResponseMeta:
     timestamp: str
 
@@ -94,7 +94,7 @@ class ResponseMeta:
         return {"timestamp": self.timestamp}
 
 
-@dataclass(slots=True)
+@dataclass
 class ResponseEnvelope:
     ok: bool
     endpoint: str
@@ -115,10 +115,10 @@ class ResponseEnvelope:
 
 
 def format_timestamp(now: datetime | None = None) -> str:
-    current = now or datetime.now(UTC)
+    current = now or datetime.now(timezone.utc)
     if current.tzinfo is None:
-        current = current.replace(tzinfo=UTC)
+        current = current.replace(tzinfo=timezone.utc)
     else:
-        current = current.astimezone(UTC)
+        current = current.astimezone(timezone.utc)
     current = current.replace(microsecond=0)
     return current.isoformat().replace("+00:00", "Z")
