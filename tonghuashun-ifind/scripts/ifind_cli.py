@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import date
 from datetime import datetime
 from datetime import timedelta
 from datetime import timezone
@@ -68,6 +69,14 @@ def run_command(argv: list[str]) -> dict[str, object]:
             "date-sequence",
         }:
             return _handle_api_command(args, state_path)
+        if args.command in {
+            "smart-query",
+            "quote-realtime",
+            "quote-history",
+            "market-snapshot",
+            "fundamental-basic",
+        }:
+            return _handle_routed_query_command(args, state_path)
     except Exception as exc:
         return build_envelope(
             ok=False,
@@ -133,6 +142,24 @@ def _build_parser() -> argparse.ArgumentParser:
     subparsers.add_parser("smart-pick", parents=[api_common])
     subparsers.add_parser("report-query", parents=[api_common])
     subparsers.add_parser("date-sequence", parents=[api_common])
+
+    smart_query = subparsers.add_parser("smart-query", parents=[api_common])
+    smart_query.add_argument("--query", required=True)
+
+    quote_realtime = subparsers.add_parser("quote-realtime", parents=[api_common])
+    quote_realtime.add_argument("--symbol", required=True)
+
+    quote_history = subparsers.add_parser("quote-history", parents=[api_common])
+    quote_history.add_argument("--symbol", required=True)
+    quote_history.add_argument("--start-date", default=None)
+    quote_history.add_argument("--end-date", default=None)
+    quote_history.add_argument("--days", type=int, default=30)
+
+    market_snapshot = subparsers.add_parser("market-snapshot", parents=[api_common])
+    market_snapshot.add_argument("--symbol", default=None)
+
+    fundamental_basic = subparsers.add_parser("fundamental-basic", parents=[api_common])
+    fundamental_basic.add_argument("--symbol", required=True)
 
     return parser
 
@@ -233,6 +260,136 @@ def _handle_api_command(
     )
 
 
+def _handle_routed_query_command(
+    args: argparse.Namespace,
+    state_path: Path,
+) -> dict[str, object]:
+    from tonghuashun_ifind_skill.client import IFindClient
+    from tonghuashun_ifind_skill.client import build_envelope
+    from tonghuashun_ifind_skill.routing import build_fundamental_plan
+    from tonghuashun_ifind_skill.routing import build_history_plan
+    from tonghuashun_ifind_skill.routing import build_market_snapshot_plan
+    from tonghuashun_ifind_skill.routing import build_realtime_plan
+    from tonghuashun_ifind_skill.routing import build_route_plan
+    from tonghuashun_ifind_skill.routing import extract_entity_from_search_payload
+    from tonghuashun_ifind_skill.routing import resolve_common_index_entity
+
+    auth = _build_auth_manager(
+        state_path=state_path,
+        username=args.username,
+        password=args.password,
+        login_url=args.login_url,
+        username_selector=args.username_selector,
+        password_selector=args.password_selector,
+        submit_selector=args.submit_selector,
+        browser_executable=args.browser_executable,
+        base_url=args.base_url,
+    )
+    client = IFindClient(base_url=args.base_url)
+    auth_cache: dict[str, object] = {}
+
+    def ensure_auth() -> tuple[object, str]:
+        bundle = auth_cache.get("bundle")
+        token_source = auth_cache.get("token_source")
+        if bundle is not None and isinstance(token_source, str):
+            return bundle, token_source
+        resolved_bundle, resolved_token_source = auth.resolve_tokens()
+        auth_cache["bundle"] = resolved_bundle
+        auth_cache["token_source"] = resolved_token_source
+        return resolved_bundle, resolved_token_source
+
+    def entity_lookup(text: str):
+        common_index = resolve_common_index_entity(text)
+        if common_index is not None:
+            return common_index
+        bundle, token_source = ensure_auth()
+        payload = {
+            "searchstring": f"{text} 股票代码 股票简称",
+            "searchtype": "stock",
+        }
+        result = client.smart_stock_picking(payload, bundle.access_token, token_source)
+        if not result.get("ok"):
+            return None
+        raw_payload = result.get("data")
+        if not isinstance(raw_payload, dict):
+            return None
+        return extract_entity_from_search_payload(text, raw_payload)
+
+    if args.command == "smart-query":
+        plan = build_route_plan(
+            args.query,
+            entity_lookup=entity_lookup,
+            today=date.today(),
+        )
+    elif args.command == "quote-realtime":
+        plan = build_route_plan(
+            f"{args.symbol} 最新价",
+            entity_lookup=entity_lookup,
+            today=date.today(),
+        )
+    elif args.command == "quote-history":
+        plan = build_route_plan(
+            f"{args.symbol} 近{args.days}天走势",
+            entity_lookup=entity_lookup,
+            today=date.today(),
+        )
+        if plan.intent == "quote_history" and plan.entity is not None:
+            plan = build_history_plan(
+                plan.entity,
+                query=f"{args.symbol} 近{args.days}天走势",
+                today=date.today(),
+                start_date=args.start_date,
+                end_date=args.end_date,
+            )
+    elif args.command == "market-snapshot":
+        plan = build_market_snapshot_plan(args.symbol)
+    elif args.command == "fundamental-basic":
+        plan = build_route_plan(
+            f"{args.symbol} 基本面",
+            entity_lookup=entity_lookup,
+            today=date.today(),
+        )
+    else:
+        return build_envelope(
+            ok=False,
+            endpoint="/cli",
+            token_source="cli",
+            error_type="invalid_request",
+            error_message="unknown routed command",
+        )
+
+    if plan.intent == "manual_lookup":
+        return build_envelope(
+            ok=False,
+            endpoint="/manual_lookup",
+            token_source="cli",
+            error_type="manual_api_lookup_required",
+            error_message=plan.note or "manual lookup required",
+            data={
+                "intent": plan.intent,
+                "note": plan.note,
+            },
+        )
+
+    bundle, token_source = ensure_auth()
+
+    if args.command == "fundamental-basic" or plan.intent == "fundamental_basic":
+        return _execute_fundamental_plan(
+            client=client,
+            access_token=bundle.access_token,
+            token_source=token_source,
+            plan=plan,
+        )
+
+    result = client.api_call(
+        plan.endpoint or "/",
+        plan.payload or {},
+        bundle.access_token,
+        token_source,
+    )
+    return _attach_route_metadata(result, plan)
+
+
 def _build_auth_manager(
     *,
     state_path: Path,
@@ -300,6 +457,103 @@ def _sanitize_exception(exc: Exception) -> str:
     return f"request failed: {exc.__class__.__name__}"
 
 
+def _attach_route_metadata(result: dict[str, object], plan) -> dict[str, object]:
+    result["data"] = {
+        "intent": plan.intent,
+        "entity": None if plan.entity is None else {
+            "raw": plan.entity.raw,
+            "symbol": plan.entity.symbol,
+            "name": plan.entity.name,
+            "entity_type": plan.entity.entity_type,
+        },
+        "request": {"payload": plan.payload},
+        "response": result.get("data"),
+        "note": plan.note,
+    }
+    return result
+
+
+def _execute_fundamental_plan(
+    *,
+    client,
+    access_token: str,
+    token_source: str,
+    plan,
+) -> dict[str, object]:
+    from tonghuashun_ifind_skill.client import build_envelope
+
+    payload = plan.payload or {}
+    searchstrings = payload.get("searchstrings")
+    searchtype = payload.get("searchtype", "stock")
+    if not isinstance(searchstrings, list) or not searchstrings:
+        return build_envelope(
+            ok=False,
+            endpoint="/smart_stock_picking",
+            token_source=token_source,
+            error_type="invalid_request",
+            error_message="missing searchstrings for fundamental route",
+        )
+
+    labels = ("financials", "valuation", "forecast")
+    results: dict[str, object] = {}
+    partial_failures: list[str] = []
+    any_success = False
+    errors: dict[str, object] = {}
+
+    for label, searchstring in zip(labels, searchstrings):
+        result = client.smart_stock_picking(
+            {"searchstring": searchstring, "searchtype": searchtype},
+            access_token,
+            token_source,
+        )
+        if result.get("ok"):
+            any_success = True
+            results[label] = result.get("data")
+        else:
+            partial_failures.append(label)
+            errors[label] = result.get("error")
+
+    if not any_success:
+        return build_envelope(
+            ok=False,
+            endpoint="/smart_stock_picking",
+            token_source=token_source,
+            error_type="api_failed",
+            error_message="all fundamental queries failed",
+            data={
+                "intent": plan.intent,
+                "entity": None if plan.entity is None else {
+                    "raw": plan.entity.raw,
+                    "symbol": plan.entity.symbol,
+                    "name": plan.entity.name,
+                    "entity_type": plan.entity.entity_type,
+                },
+                "request": {"payload": plan.payload},
+                "partial_failures": partial_failures,
+                "errors": errors,
+            },
+        )
+
+    return build_envelope(
+        ok=True,
+        endpoint="/smart_stock_picking",
+        token_source=token_source,
+        data={
+            "intent": plan.intent,
+            "entity": None if plan.entity is None else {
+                "raw": plan.entity.raw,
+                "symbol": plan.entity.symbol,
+                "name": plan.entity.name,
+                "entity_type": plan.entity.entity_type,
+            },
+            "request": {"payload": plan.payload},
+            "results": results,
+            "partial_failures": partial_failures,
+            "errors": errors,
+        },
+    )
+
+
 def _command_endpoint(args: argparse.Namespace) -> str:
     if args.command == "auth-login":
         return "/auth/login"
@@ -316,6 +570,16 @@ def _command_endpoint(args: argparse.Namespace) -> str:
         return "/report_query"
     if args.command == "date-sequence":
         return "/date_sequence"
+    if args.command == "smart-query":
+        return "/smart_query"
+    if args.command == "quote-realtime":
+        return "/real_time_quotation"
+    if args.command == "quote-history":
+        return "/cmd_history_quotation"
+    if args.command == "market-snapshot":
+        return "/real_time_quotation"
+    if args.command == "fundamental-basic":
+        return "/smart_stock_picking"
     return "/cli"
 
 

@@ -4,6 +4,8 @@
 
 这套 skill 的目标很直接：当用户要证券、财务、研报、日期序列、因子、选股或其他 iFinD 能回答的数据时，优先通过 iFinD OpenAPI 取数，而不是先去网页搜索或拼接别的数据源。
 
+当前版本在保留原始 `api-call` 能力的同时，新增了面向 Agent 的稳定常见路由，优先解决“股价查询、大盘快照、历史走势、基础财务指标”这类高频问题，避免用户请求到了 skill 之后还要手写 endpoint 和 payload。
+
 ## 核心能力
 
 - API 优先，浏览器只负责获取 token，不负责抓业务数据。
@@ -11,6 +13,8 @@
 - 支持 `refresh_token` 自动续期。
 - 支持客户手动提供 `access_token` 和 `refresh_token`。
 - 支持通过本地无头 Chrome 半自动登录抓取 token。
+- 提供 `smart-query` 作为常见问题主入口。
+- 提供 `quote-realtime`、`quote-history`、`market-snapshot`、`fundamental-basic` 四个稳定命令。
 - 提供通用 `api-call`，可以直接调用任意 iFinD OpenAPI endpoint。
 - 保留 `basic-data`、`smart-pick`、`report-query`、`date-sequence` 这几个薄封装命令，方便常见场景直接调用。
 
@@ -59,9 +63,37 @@ skill 的鉴权顺序如下：
 
 ## 通用查询方式
 
+### 常见查询主入口
+
+优先让 Agent 用 `smart-query`，直接把用户自然语言问题交给 skill 路由：
+
+```bash
+uv run python tonghuashun-ifind/scripts/ifind_cli.py smart-query \
+  --query "看看贵州茅台现在股价"
+
+uv run python tonghuashun-ifind/scripts/ifind_cli.py smart-query \
+  --query "看下宁德时代近一个月走势"
+
+uv run python tonghuashun-ifind/scripts/ifind_cli.py smart-query \
+  --query "看一下大盘"
+
+uv run python tonghuashun-ifind/scripts/ifind_cli.py smart-query \
+  --query "看看宁德时代基本面"
+```
+
+### 显式稳定命令
+
+```bash
+uv run python tonghuashun-ifind/scripts/ifind_cli.py quote-realtime --symbol 600519
+uv run python tonghuashun-ifind/scripts/ifind_cli.py quote-history --symbol 300750 --days 30
+uv run python tonghuashun-ifind/scripts/ifind_cli.py market-snapshot
+uv run python tonghuashun-ifind/scripts/ifind_cli.py market-snapshot --symbol 沪深300
+uv run python tonghuashun-ifind/scripts/ifind_cli.py fundamental-basic --symbol 300750
+```
+
 ### 原始 API 调用
 
-`api-call` 是主入口。只要知道 endpoint 和 payload，就可以直接调任意 iFinD API。
+`api-call` 是高级兜底入口。只有在 `smart-query` 和稳定命令未覆盖、并且已经知道明确 endpoint 和 payload 的情况下，才直接调任意 iFinD API。
 
 ```bash
 uv run python tonghuashun-ifind/scripts/ifind_cli.py api-call \
@@ -69,7 +101,7 @@ uv run python tonghuashun-ifind/scripts/ifind_cli.py api-call \
   --payload '{"codes":"300750.SZ","indicators":"ths_close_price_stock"}'
 ```
 
-### 常见薄封装
+### 保留的原始薄封装
 
 ```bash
 uv run python tonghuashun-ifind/scripts/ifind_cli.py basic-data --payload '{"codes":"300750.SZ"}'
@@ -77,6 +109,14 @@ uv run python tonghuashun-ifind/scripts/ifind_cli.py smart-pick --payload '{"con
 uv run python tonghuashun-ifind/scripts/ifind_cli.py report-query --payload '{"codes":"300750.SZ"}'
 uv run python tonghuashun-ifind/scripts/ifind_cli.py date-sequence --payload '{"startdate":"2025-01-01","enddate":"2025-01-31"}'
 ```
+
+### 路由兜底规则
+
+如果 `smart-query` 返回需要手动查接口：
+
+1. 先读 `tonghuashun-ifind/references/routing.md`
+2. 再看 `tonghuashun-ifind/references/use-cases.md`
+3. 如果文档里仍没有明确接口，就直接告诉用户当前 skill 没有稳定覆盖该 iFinD 能力
 
 ## 本地安装
 
@@ -118,16 +158,19 @@ npx --yes clawhub@latest login
 clawhub publish tonghuashun-ifind \
   --slug tonghuashun-ifind \
   --name "同花顺 iFinD 接入 Skill" \
-  --version 0.2.0 \
-  --changelog "补齐 refresh_token 自动续期，文档切换为中文并增加捐赠说明"
+  --version 0.3.1 \
+  --changelog "新增常见查询路由与 Agent use cases，支持个股最新价、历史走势、大盘快照和基础财务指标。"
 ```
 
 ## 项目结构
 
 - `tonghuashun-ifind/SKILL.md`
 - `tonghuashun-ifind/agents/openai.yaml`
+- `tonghuashun-ifind/references/routing.md`
 - `tonghuashun-ifind/references/usage.md`
+- `tonghuashun-ifind/references/use-cases.md`
 - `tonghuashun-ifind/scripts/ifind_cli.py`
+- `tonghuashun-ifind/scripts/runtime/tonghuashun_ifind_skill/routing.py`
 - `scripts/install_skill.sh`
 - `scripts/validate_skill.sh`
 

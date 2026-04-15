@@ -114,6 +114,43 @@ def test_build_auth_manager_uses_base_url_for_refresh(monkeypatch, tmp_path):
     assert bundle.access_token == "access-refreshed"
 
 
+def test_cli_smart_query_routes_to_routed_handler(monkeypatch, tmp_path):
+    captured: dict[str, object] = {}
+
+    def fake_handle_routed_query_command(args, state_path):
+        captured["command"] = args.command
+        captured["query"] = args.query
+        captured["state_path"] = state_path
+        return {
+            "ok": True,
+            "endpoint": "/real_time_quotation",
+            "token_source": "manual",
+            "data": {"intent": "market_snapshot"},
+            "error": None,
+            "meta": {},
+        }
+
+    monkeypatch.setattr(
+        "ifind_cli._handle_routed_query_command",
+        fake_handle_routed_query_command,
+    )
+
+    result = run_command(
+        [
+            "--state-path",
+            str(tmp_path / "token_state.json"),
+            "smart-query",
+            "--query",
+            "看一下大盘",
+        ]
+    )
+
+    assert result["ok"] is True
+    assert captured["command"] == "smart-query"
+    assert captured["query"] == "看一下大盘"
+    assert captured["state_path"] == tmp_path / "token_state.json"
+
+
 def test_skill_package_contains_required_files():
     assert Path("tonghuashun-ifind/SKILL.md").exists()
     assert Path("tonghuashun-ifind/agents/openai.yaml").exists()

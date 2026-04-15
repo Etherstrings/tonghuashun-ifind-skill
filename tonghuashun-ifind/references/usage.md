@@ -35,7 +35,35 @@ python3 {baseDir}/scripts/ifind_cli.py api-call \
   --payload '{"codes":"300750.SZ","indicators":"ths_close_price_stock","functionpara":{"Interval":"D","StartDate":"2025-01-01","EndDate":"2025-01-31"}}'
 ```
 
-## 常见薄封装
+## 常见查询主入口
+
+优先让 Agent 用 `smart-query`，直接把用户的问题交给 skill 路由：
+
+```bash
+python3 {baseDir}/scripts/ifind_cli.py smart-query \
+  --query "看看贵州茅台现在股价"
+
+python3 {baseDir}/scripts/ifind_cli.py smart-query \
+  --query "看下宁德时代近一个月走势"
+
+python3 {baseDir}/scripts/ifind_cli.py smart-query \
+  --query "看一下大盘"
+
+python3 {baseDir}/scripts/ifind_cli.py smart-query \
+  --query "看看宁德时代基本面"
+```
+
+## 显式稳定命令
+
+```bash
+python3 {baseDir}/scripts/ifind_cli.py quote-realtime --symbol 600519
+python3 {baseDir}/scripts/ifind_cli.py quote-history --symbol 300750 --days 30
+python3 {baseDir}/scripts/ifind_cli.py market-snapshot
+python3 {baseDir}/scripts/ifind_cli.py market-snapshot --symbol 沪深300
+python3 {baseDir}/scripts/ifind_cli.py fundamental-basic --symbol 300750
+```
+
+## 保留的原始薄封装
 
 ```bash
 python3 {baseDir}/scripts/ifind_cli.py basic-data --payload '{"codes":"300750.SZ"}'
@@ -47,3 +75,10 @@ python3 {baseDir}/scripts/ifind_cli.py date-sequence --payload '{"startdate":"20
 ## 失败回退规则
 
 如果 `auth-login` 无法抓到 `access_token` 和 `refresh_token`，就停止浏览器流程，改为向客户索取双 token，然后执行 `auth-set-tokens`。
+
+如果 `smart-query` 返回需要手动查接口：
+
+1. 先读 `references/routing.md`
+2. 再看 `references/use-cases.md` 里是否已有类似问法
+3. 再决定是否使用 `api-call`
+4. 如果文档里也找不到合适接口，就明确告诉用户当前 skill 未覆盖该 iFinD 能力

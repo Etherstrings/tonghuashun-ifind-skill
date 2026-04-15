@@ -4,8 +4,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "tonghuashun-ifind-skill"
-version = "0.2.0"
-description = "Tonghuashun iFinD skill with raw API calls, token refresh, and local browser login."
+version = "0.3.1"
+description = "Tonghuashun iFinD skill for OpenClaw with deterministic routing for common stock and index queries."
 readme = "README.md"
 requires-python = ">=3.9"
 dependencies = [
