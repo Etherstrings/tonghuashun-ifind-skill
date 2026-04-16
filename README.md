@@ -187,7 +187,15 @@ clawhub publish tonghuashun-ifind \
 
 ## <a id="donate"></a>赞助支持
 
-如果这个项目对你有帮助，欢迎通过 GitHub Sponsors 支持后续维护与同花顺接口适配。
+如果这个项目对你有帮助，欢迎赞助支持继续迭代。
 
 - GitHub Sponsors: https://github.com/sponsors/Etherstrings
+- 如果你更习惯国内付款方式，可以直接扫码赞助
+
+<div>
+  <img src="docs/assets/donate/alipay.jpg" alt="Alipay QR" width="260" />
+  <img src="docs/assets/donate/wechat.jpg" alt="WeChat Pay QR" width="260" />
+</div>
+
+支持会优先用于同花顺接口适配、公开源兜底维护和后续功能迭代。
 - 如果你需要企业内部定制或私有化版本，也可以通过 GitHub Issues / Discussions 联系

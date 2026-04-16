@@ -5,6 +5,13 @@ def test_readme_contains_chinese_donation_section():
     source = Path("README.md").read_text(encoding="utf-8")
     assert '## <a id="donate"></a>赞助支持' in source
     assert "GitHub Sponsors" in source
+    assert "docs/assets/donate/alipay.jpg" in source
+    assert "docs/assets/donate/wechat.jpg" in source
+
+
+def test_donate_images_exist():
+    assert Path("docs/assets/donate/alipay.jpg").is_file()
+    assert Path("docs/assets/donate/wechat.jpg").is_file()
 
 
 def test_skill_docs_are_written_in_chinese():
