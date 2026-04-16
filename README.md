@@ -1,5 +1,21 @@
 # tonghuashun-ifind-skill
 
+<div align="center">
+
+**当 Agent 该查 iFinD 的时候，先走专业 API，而不是退回网页搜索和拼数据。**
+
+![OpenClaw](https://img.shields.io/badge/OpenClaw-Skill-1D4ED8?style=flat-square)
+![iFinD](https://img.shields.io/badge/Data-iFinD-0F766E?style=flat-square)
+![API First](https://img.shields.io/badge/Query-API_First-7C3AED?style=flat-square)
+![Finance Data](https://img.shields.io/badge/Domain-Finance_Data-C62828?style=flat-square)
+![Token Refresh](https://img.shields.io/badge/Auth-Auto_Refresh-0891B2?style=flat-square)
+
+token 复用 · refresh 自动续期 · 浏览器辅助登录 · 通用 endpoint 调用
+
+[赞助支持](#donate)
+
+</div>
+
 一个面向 OpenClaw 和其他 Agent 的同花顺 iFinD 接入 skill。
 
 这套 skill 的目标很直接：当用户要证券、财务、研报、日期序列、因子、选股或其他 iFinD 能回答的数据时，优先通过 iFinD OpenAPI 取数，而不是先去网页搜索或拼接别的数据源。
