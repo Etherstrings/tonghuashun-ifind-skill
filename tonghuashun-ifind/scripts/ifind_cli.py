@@ -266,6 +266,7 @@ def _handle_routed_query_command(
 ) -> dict[str, object]:
     from tonghuashun_ifind_skill.client import IFindClient
     from tonghuashun_ifind_skill.client import build_envelope
+    from tonghuashun_ifind_skill.fallback import TencentStockFallbackClient
     from tonghuashun_ifind_skill.routing import build_fundamental_plan
     from tonghuashun_ifind_skill.routing import build_history_plan
     from tonghuashun_ifind_skill.routing import build_market_snapshot_plan
@@ -286,6 +287,7 @@ def _handle_routed_query_command(
         base_url=args.base_url,
     )
     client = IFindClient(base_url=args.base_url)
+    fallback_client = TencentStockFallbackClient()
     auth_cache: dict[str, object] = {}
 
     def ensure_auth() -> tuple[object, str]:
@@ -302,18 +304,24 @@ def _handle_routed_query_command(
         common_index = resolve_common_index_entity(text)
         if common_index is not None:
             return common_index
-        bundle, token_source = ensure_auth()
+        try:
+            bundle, token_source = ensure_auth()
+        except Exception:
+            return fallback_client.search_entity(text)
         payload = {
             "searchstring": f"{text} 股票代码 股票简称",
             "searchtype": "stock",
         }
         result = client.smart_stock_picking(payload, bundle.access_token, token_source)
         if not result.get("ok"):
-            return None
+            return fallback_client.search_entity(text)
         raw_payload = result.get("data")
         if not isinstance(raw_payload, dict):
-            return None
-        return extract_entity_from_search_payload(text, raw_payload)
+            return fallback_client.search_entity(text)
+        entity = extract_entity_from_search_payload(text, raw_payload)
+        if entity is not None:
+            return entity
+        return fallback_client.search_entity(text)
 
     if args.command == "smart-query":
         plan = build_route_plan(
@@ -371,7 +379,23 @@ def _handle_routed_query_command(
             },
         )
 
-    bundle, token_source = ensure_auth()
+    try:
+        bundle, token_source = ensure_auth()
+    except Exception as exc:
+        fallback_result = _execute_public_fallback(
+            fallback_client=fallback_client,
+            plan=plan,
+            reason=_sanitize_exception(exc),
+        )
+        if fallback_result is not None:
+            return fallback_result
+        return build_envelope(
+            ok=False,
+            endpoint=plan.endpoint or "/cli",
+            token_source="cli",
+            error_type="runtime_failed",
+            error_message=_sanitize_exception(exc),
+        )
 
     if args.command == "fundamental-basic" or plan.intent == "fundamental_basic":
         return _execute_fundamental_plan(
@@ -387,6 +411,14 @@ def _handle_routed_query_command(
         bundle.access_token,
         token_source,
     )
+    if not result.get("ok"):
+        fallback_result = _execute_public_fallback(
+            fallback_client=fallback_client,
+            plan=plan,
+            reason=_result_error_message(result),
+        )
+        if fallback_result is not None:
+            return fallback_result
     return _attach_route_metadata(result, plan)
 
 
@@ -457,7 +489,25 @@ def _sanitize_exception(exc: Exception) -> str:
     return f"request failed: {exc.__class__.__name__}"
 
 
-def _attach_route_metadata(result: dict[str, object], plan) -> dict[str, object]:
+def _attach_route_metadata(
+    result: dict[str, object],
+    plan,
+    *,
+    response_data: object | None = None,
+    note: str | None = None,
+    provider: dict[str, object] | None = None,
+) -> dict[str, object]:
+    effective_response = result.get("data") if response_data is None else response_data
+    effective_provider = provider
+    if effective_provider is None and isinstance(effective_response, dict):
+        maybe_provider = effective_response.get("provider")
+        if isinstance(maybe_provider, dict):
+            effective_provider = maybe_provider
+            effective_response = {
+                key: value
+                for key, value in effective_response.items()
+                if key != "provider"
+            }
     result["data"] = {
         "intent": plan.intent,
         "entity": None if plan.entity is None else {
@@ -467,9 +517,11 @@ def _attach_route_metadata(result: dict[str, object], plan) -> dict[str, object]
             "entity_type": plan.entity.entity_type,
         },
         "request": {"payload": plan.payload},
-        "response": result.get("data"),
-        "note": plan.note,
+        "response": effective_response,
+        "note": note if note is not None else plan.note,
     }
+    if effective_provider is not None:
+        result["data"]["provider"] = effective_provider
     return result
 
 
@@ -554,6 +606,35 @@ def _execute_fundamental_plan(
     )
 
 
+def _execute_public_fallback(
+    *,
+    fallback_client,
+    plan,
+    reason: str,
+) -> dict[str, object] | None:
+    from tonghuashun_ifind_skill.client import build_envelope
+
+    if plan.intent not in {"quote_realtime", "quote_history", "market_snapshot"}:
+        return None
+    try:
+        fallback_data = fallback_client.execute_plan(plan)
+    except Exception:
+        return None
+    result = build_envelope(
+        ok=True,
+        endpoint=plan.endpoint or "/fallback",
+        token_source="fallback:tencent",
+        data=None,
+    )
+    fallback_note = f"iFinD 查询失败，已回退到腾讯财经公开行情源。原因: {reason}"
+    return _attach_route_metadata(
+        result,
+        plan,
+        response_data=fallback_data,
+        note=fallback_note,
+    )
+
+
 def _command_endpoint(args: argparse.Namespace) -> str:
     if args.command == "auth-login":
         return "/auth/login"
@@ -581,6 +662,15 @@ def _command_endpoint(args: argparse.Namespace) -> str:
     if args.command == "fundamental-basic":
         return "/smart_stock_picking"
     return "/cli"
+
+
+def _result_error_message(result: dict[str, object]) -> str:
+    error = result.get("error")
+    if isinstance(error, dict):
+        message = error.get("message")
+        if isinstance(message, str) and message.strip():
+            return message.strip()
+    return "iFinD request failed"
 
 
 if __name__ == "__main__":

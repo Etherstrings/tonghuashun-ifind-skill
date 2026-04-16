@@ -8,6 +8,16 @@
 2. 如果请求已经很明确，也可以直接使用显式稳定命令
 3. 只有在常见路由未覆盖时，才考虑 `api-call`
 
+## 自动兜底
+
+以下三类请求会先走 iFinD，失败时自动回退到腾讯财经公开行情源：
+
+1. `quote_realtime`
+2. `quote_history`
+3. `market_snapshot`
+
+`fundamental_basic` 目前没有公开源兜底。
+
 ## 当前内置支持
 
 ### 1. 个股最新价
@@ -22,6 +32,7 @@
 实际接口：
 
 - `/real_time_quotation`
+- fallback: 腾讯财经 `https://qt.gtimg.cn/q=...`
 
 ### 2. 个股历史走势
 
@@ -35,6 +46,7 @@
 实际接口：
 
 - `/cmd_history_quotation`
+- fallback: 腾讯财经 `https://web.ifzq.gtimg.cn/appstock/app/fqkline/get`
 
 默认规则：
 
@@ -58,6 +70,7 @@
 实际接口：
 
 - `/real_time_quotation`
+- fallback: 腾讯财经 `https://qt.gtimg.cn/q=...`
 
 ### 4. 基础财务指标
 
@@ -77,6 +90,11 @@
 - 财务指标
 - 估值指标
 - 预测指标
+
+公开源兜底：
+
+- 当前不支持
+- 如果 iFinD 不可用，直接告诉用户当前 skill 没有稳定覆盖公开源基本面能力
 
 ## 什么时候不要猜
 

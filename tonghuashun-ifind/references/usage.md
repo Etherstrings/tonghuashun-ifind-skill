@@ -63,6 +63,12 @@ python3 {baseDir}/scripts/ifind_cli.py market-snapshot --symbol 沪深300
 python3 {baseDir}/scripts/ifind_cli.py fundamental-basic --symbol 300750
 ```
 
+说明：
+
+- `quote-realtime`、`quote-history`、`market-snapshot` 会先走 iFinD
+- 如果 iFinD 查询失败，会自动回退到腾讯财经公开行情源
+- `fundamental-basic` 暂时没有公开源兜底
+
 ## 保留的原始薄封装
 
 ```bash
@@ -75,6 +81,13 @@ python3 {baseDir}/scripts/ifind_cli.py date-sequence --payload '{"startdate":"20
 ## 失败回退规则
 
 如果 `auth-login` 无法抓到 `access_token` 和 `refresh_token`，就停止浏览器流程，改为向客户索取双 token，然后执行 `auth-set-tokens`。
+
+如果是行情类请求，而且 iFinD 查询失败：
+
+1. skill 会自动尝试腾讯财经公开行情源
+2. 返回结果里会标出 provider 为 `tencent_finance`
+3. 不需要 Agent 再手写第二套命令
+4. 如果连公开源也失败，再把失败结果返回给用户
 
 如果 `smart-query` 返回需要手动查接口：
 

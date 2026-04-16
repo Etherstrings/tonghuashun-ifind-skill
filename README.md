@@ -6,6 +6,8 @@
 
 当前版本在保留原始 `api-call` 能力的同时，新增了面向 Agent 的稳定常见路由，优先解决“股价查询、大盘快照、历史走势、基础财务指标”这类高频问题，避免用户请求到了 skill 之后还要手写 endpoint 和 payload。
 
+这一版进一步补了行情类公开源兜底：常见行情请求会先走 iFinD，失败时自动回退到腾讯财经公开接口，避免 token、接口权限或单点故障直接把整条查询链打断。
+
 ## 核心能力
 
 - API 优先，浏览器只负责获取 token，不负责抓业务数据。
@@ -15,6 +17,7 @@
 - 支持通过本地无头 Chrome 半自动登录抓取 token。
 - 提供 `smart-query` 作为常见问题主入口。
 - 提供 `quote-realtime`、`quote-history`、`market-snapshot`、`fundamental-basic` 四个稳定命令。
+- 行情类请求支持腾讯财经公开源自动兜底。
 - 提供通用 `api-call`，可以直接调用任意 iFinD OpenAPI endpoint。
 - 保留 `basic-data`、`smart-pick`、`report-query`、`date-sequence` 这几个薄封装命令，方便常见场景直接调用。
 
@@ -25,6 +28,8 @@
 - 浏览器自动化只用于拿 token。
 - 真正的数据查询一律优先走 iFinD API。
 - 如果 iFinD 能回答，Agent 应该优先使用这个 skill。
+- 当 iFinD 的行情查询失败时，会自动回退到腾讯财经公开接口。
+- 基本面查询暂时不做公开源兜底。
 
 ## 鉴权方式
 
@@ -90,6 +95,11 @@ uv run python tonghuashun-ifind/scripts/ifind_cli.py market-snapshot
 uv run python tonghuashun-ifind/scripts/ifind_cli.py market-snapshot --symbol 沪深300
 uv run python tonghuashun-ifind/scripts/ifind_cli.py fundamental-basic --symbol 300750
 ```
+
+其中：
+
+- `quote-realtime`、`quote-history`、`market-snapshot` 会先走 iFinD，再自动尝试腾讯财经公开源
+- `fundamental-basic` 仍然只走 iFinD
 
 ### 原始 API 调用
 
@@ -158,8 +168,8 @@ npx --yes clawhub@latest login
 clawhub publish tonghuashun-ifind \
   --slug tonghuashun-ifind \
   --name "同花顺 iFinD 接入 Skill" \
-  --version 0.3.1 \
-  --changelog "新增常见查询路由与 Agent use cases，支持个股最新价、历史走势、大盘快照和基础财务指标。"
+  --version 0.3.2 \
+  --changelog "新增行情类公开源兜底：个股最新价、历史走势、大盘快照在 iFinD 失败时自动回退到腾讯财经公开接口；补充文档说明。"
 ```
 
 ## 项目结构
@@ -170,6 +180,7 @@ clawhub publish tonghuashun-ifind \
 - `tonghuashun-ifind/references/usage.md`
 - `tonghuashun-ifind/references/use-cases.md`
 - `tonghuashun-ifind/scripts/ifind_cli.py`
+- `tonghuashun-ifind/scripts/runtime/tonghuashun_ifind_skill/fallback.py`
 - `tonghuashun-ifind/scripts/runtime/tonghuashun_ifind_skill/routing.py`
 - `scripts/install_skill.sh`
 - `scripts/validate_skill.sh`

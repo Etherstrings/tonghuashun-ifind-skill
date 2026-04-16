@@ -151,6 +151,100 @@ def test_cli_smart_query_routes_to_routed_handler(monkeypatch, tmp_path):
     assert captured["state_path"] == tmp_path / "token_state.json"
 
 
+def test_quote_realtime_falls_back_to_tencent_when_ifind_auth_fails(
+    monkeypatch,
+    tmp_path,
+):
+    class FakeAuthManager:
+        def resolve_tokens(self):
+            raise RuntimeError("ifind unavailable")
+
+    class FakeTencentFallbackClient:
+        def __init__(self, **kwargs):
+            return None
+
+        def execute_plan(self, plan):
+            return {
+                "provider": {"name": "tencent_finance"},
+                "quotes": [{"symbol": "600519.SH", "latest": 1462.84}],
+                "fallback_reason": "ifind unavailable",
+                "fallback_for": plan.intent,
+            }
+
+    monkeypatch.setattr("ifind_cli._build_auth_manager", lambda **kwargs: FakeAuthManager())
+    monkeypatch.setattr(
+        "tonghuashun_ifind_skill.fallback.TencentStockFallbackClient",
+        FakeTencentFallbackClient,
+    )
+
+    result = run_command(
+        [
+            "--state-path",
+            str(tmp_path / "token_state.json"),
+            "quote-realtime",
+            "--symbol",
+            "600519",
+        ]
+    )
+
+    assert result["ok"] is True
+    assert result["token_source"] == "fallback:tencent"
+    assert result["data"]["provider"]["name"] == "tencent_finance"
+    assert result["data"]["entity"]["symbol"] == "600519.SH"
+
+
+def test_smart_query_uses_tencent_search_when_ifind_lookup_unavailable(
+    monkeypatch,
+    tmp_path,
+):
+    class FakeAuthManager:
+        def resolve_tokens(self):
+            raise RuntimeError("ifind unavailable")
+
+    class FakeTencentFallbackClient:
+        def __init__(self, **kwargs):
+            return None
+
+        def search_entity(self, text):
+            from tonghuashun_ifind_skill.routing import ResolvedEntity
+
+            assert text == "贵州茅台"
+            return ResolvedEntity(
+                raw="贵州茅台",
+                symbol="600519.SH",
+                name="贵州茅台",
+                entity_type="stock",
+            )
+
+        def execute_plan(self, plan):
+            return {
+                "provider": {"name": "tencent_finance"},
+                "quotes": [{"symbol": "600519.SH", "latest": 1462.84}],
+                "fallback_reason": "ifind unavailable",
+                "fallback_for": plan.intent,
+            }
+
+    monkeypatch.setattr("ifind_cli._build_auth_manager", lambda **kwargs: FakeAuthManager())
+    monkeypatch.setattr(
+        "tonghuashun_ifind_skill.fallback.TencentStockFallbackClient",
+        FakeTencentFallbackClient,
+    )
+
+    result = run_command(
+        [
+            "--state-path",
+            str(tmp_path / "token_state.json"),
+            "smart-query",
+            "--query",
+            "看看贵州茅台现在股价",
+        ]
+    )
+
+    assert result["ok"] is True
+    assert result["token_source"] == "fallback:tencent"
+    assert result["data"]["entity"]["symbol"] == "600519.SH"
+
+
 def test_skill_package_contains_required_files():
     assert Path("tonghuashun-ifind/SKILL.md").exists()
     assert Path("tonghuashun-ifind/agents/openai.yaml").exists()
