@@ -614,19 +614,25 @@ def _execute_public_fallback(
 ) -> dict[str, object] | None:
     from tonghuashun_ifind_skill.client import build_envelope
 
-    if plan.intent not in {"quote_realtime", "quote_history", "market_snapshot"}:
+    if plan.intent not in {
+        "quote_realtime",
+        "quote_history",
+        "market_snapshot",
+        "limit_up_screen",
+    }:
         return None
     try:
         fallback_data = fallback_client.execute_plan(plan)
     except Exception:
         return None
+    provider_name = _fallback_provider_name(fallback_data)
     result = build_envelope(
         ok=True,
         endpoint=plan.endpoint or "/fallback",
-        token_source="fallback:tencent",
+        token_source=_fallback_token_source(provider_name),
         data=None,
     )
-    fallback_note = f"iFinD 查询失败，已回退到腾讯财经公开行情源。原因: {reason}"
+    fallback_note = f"iFinD 查询失败，已回退到公开数据源。原因: {reason}"
     return _attach_route_metadata(
         result,
         plan,
@@ -671,6 +677,26 @@ def _result_error_message(result: dict[str, object]) -> str:
         if isinstance(message, str) and message.strip():
             return message.strip()
     return "iFinD request failed"
+
+
+def _fallback_provider_name(fallback_data: object) -> str | None:
+    if not isinstance(fallback_data, dict):
+        return None
+    provider = fallback_data.get("provider")
+    if not isinstance(provider, dict):
+        return None
+    name = provider.get("name")
+    if isinstance(name, str) and name.strip():
+        return name.strip()
+    return None
+
+
+def _fallback_token_source(provider_name: str | None) -> str:
+    if provider_name == "tencent_finance":
+        return "fallback:tencent"
+    if provider_name == "eastmoney":
+        return "fallback:eastmoney"
+    return "fallback:public"
 
 
 if __name__ == "__main__":

@@ -84,6 +84,22 @@ def test_fundamental_route_builds_three_smart_pick_queries():
     ]
 
 
+def test_limit_up_query_routes_to_smart_stock_picking_without_entity_lookup():
+    plan = build_route_plan(
+        "今天的A股涨停数据",
+        entity_lookup=lambda _: None,
+        today=date(2026, 4, 20),
+    )
+
+    assert plan.intent == "limit_up_screen"
+    assert plan.endpoint == "/smart_stock_picking"
+    assert plan.entity is None
+    assert plan.payload == {
+        "searchstring": "今天的A股涨停数据",
+        "searchtype": "stock",
+    }
+
+
 def test_unsupported_query_returns_manual_lookup_fallback():
     plan = build_route_plan(
         "帮我找贵州茅台公告PDF下载链接并按日期排序",

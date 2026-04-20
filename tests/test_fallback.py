@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from datetime import date
+
+from tonghuashun_ifind_skill.routing import RoutePlan
 from tonghuashun_ifind_skill.fallback import TencentStockFallbackClient
 
 
@@ -111,3 +114,72 @@ def test_tencent_quote_history_parses_kline_payload() -> None:
     assert result["symbol"] == "600519.SH"
     assert result["candles"][0]["date"] == "2026-04-15"
     assert result["candles"][1]["close"] == 1462.84
+
+
+def test_eastmoney_limit_up_pool_parses_public_payload() -> None:
+    session = FakeSession()
+    session.queue_response(
+        FakeResponse(
+            json_payload={
+                "rc": 0,
+                "data": {
+                    "qdate": 20260420,
+                    "pool": [
+                        {
+                            "c": "002843",
+                            "m": 0,
+                            "n": "泰嘉股份",
+                            "p": 27980,
+                            "zdp": 9.98427677154541,
+                            "lbc": 1,
+                            "fbt": 92500,
+                            "lbt": 92500,
+                            "hybk": "通用设备",
+                            "fund": 117854641,
+                            "zbc": 0,
+                            "zttj": {"days": 1, "ct": 1},
+                        }
+                    ],
+                },
+            }
+        )
+    )
+    client = TencentStockFallbackClient(session=session)
+
+    result = client.fetch_limit_up_pool(trade_date=date(2026, 4, 20))
+
+    assert result["provider"]["name"] == "eastmoney"
+    assert result["trade_date"] == "2026-04-20"
+    assert result["limit_up_stocks"][0]["symbol"] == "002843.SZ"
+    assert result["limit_up_stocks"][0]["name"] == "泰嘉股份"
+    assert result["limit_up_stocks"][0]["latest"] == 27.98
+    assert result["limit_up_stocks"][0]["board_count"] == 1
+
+
+def test_execute_plan_supports_limit_up_screen() -> None:
+    session = FakeSession()
+    session.queue_response(
+        FakeResponse(
+            json_payload={
+                "rc": 0,
+                "data": {
+                    "qdate": 20260420,
+                    "pool": [{"c": "002843", "m": 0, "n": "泰嘉股份", "p": 27980}],
+                },
+            }
+        )
+    )
+    client = TencentStockFallbackClient(session=session)
+
+    result = client.execute_plan(
+        RoutePlan(
+            intent="limit_up_screen",
+            endpoint="/smart_stock_picking",
+            payload={"searchstring": "今天的A股涨停数据", "searchtype": "stock"},
+            entity=None,
+            note=None,
+        )
+    )
+
+    assert result["provider"]["name"] == "eastmoney"
+    assert result["limit_up_stocks"][0]["symbol"] == "002843.SZ"

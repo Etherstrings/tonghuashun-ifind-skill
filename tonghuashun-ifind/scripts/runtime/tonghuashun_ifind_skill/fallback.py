@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import date
 from typing import Any
 import json
 import re
@@ -12,6 +13,8 @@ from tonghuashun_ifind_skill.routing import normalize_symbol
 TENCENT_QUOTE_URL = "https://qt.gtimg.cn/q="
 TENCENT_SEARCH_URL = "https://smartbox.gtimg.cn/s3/"
 TENCENT_HISTORY_URL = "https://web.ifzq.gtimg.cn/appstock/app/fqkline/get"
+EASTMONEY_LIMIT_UP_URL = "https://push2ex.eastmoney.com/getTopicZTPool"
+EASTMONEY_LIMIT_UP_UT = "7eea3edcaed734bea9cbfc24409ed989"
 
 
 class TencentStockFallbackClient:
@@ -150,6 +153,57 @@ class TencentStockFallbackClient:
             "candles": candles,
         }
 
+    def fetch_limit_up_pool(
+        self,
+        *,
+        trade_date: date,
+    ) -> dict[str, object]:
+        response = self.session.get(
+            EASTMONEY_LIMIT_UP_URL,
+            params={
+                "ut": EASTMONEY_LIMIT_UP_UT,
+                "dpt": "wz.ztzt",
+                "Pageindex": 0,
+                "pagesize": 10000,
+                "sort": "fbt:asc",
+                "date": trade_date.strftime("%Y%m%d"),
+                "_": "",
+            },
+            timeout=self.timeout,
+        )
+        response.raise_for_status()
+        payload = response.json()
+        if not isinstance(payload, dict):
+            raise ValueError("eastmoney limit-up response must be a JSON object")
+        if payload.get("rc") not in (0, "0", None):
+            raise ValueError("eastmoney limit-up response returned error")
+
+        data = payload.get("data")
+        if not isinstance(data, dict):
+            raise ValueError("eastmoney limit-up response missing data")
+        pool = data.get("pool")
+        if not isinstance(pool, list):
+            raise ValueError("eastmoney limit-up response missing pool")
+
+        records = [
+            _parse_eastmoney_limit_up_row(item)
+            for item in pool
+            if isinstance(item, dict)
+        ]
+        if not records:
+            raise ValueError("eastmoney limit-up response did not contain records")
+
+        return {
+            "provider": {
+                "name": "eastmoney",
+                "type": "public_http",
+                "channel": "zt_pool",
+            },
+            "trade_date": trade_date.isoformat(),
+            "total_count": len(records),
+            "limit_up_stocks": records,
+        }
+
     def execute_plan(self, plan: RoutePlan) -> dict[str, object]:
         if plan.intent in {"quote_realtime", "market_snapshot"}:
             payload = plan.payload or {}
@@ -168,6 +222,8 @@ class TencentStockFallbackClient:
                 start_date=start_date,
                 end_date=end_date,
             )
+        if plan.intent == "limit_up_screen":
+            return self.fetch_limit_up_pool(trade_date=date.today())
         raise ValueError(f"unsupported fallback intent: {plan.intent}")
 
     @staticmethod
@@ -259,6 +315,75 @@ def _to_float(value: object) -> float | None:
         return float(text)
     except ValueError:
         return None
+
+
+def _coerce_int(value: object) -> int | None:
+    if isinstance(value, int):
+        return value
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    try:
+        return int(text)
+    except ValueError:
+        return None
+
+
+def _parse_eastmoney_limit_up_row(row: dict[str, object]) -> dict[str, object]:
+    market_code = row.get("m")
+    code = str(row.get("c", "")).strip()
+    symbol = _eastmoney_symbol(code, market_code)
+    if not symbol:
+        raise ValueError("eastmoney limit-up row missing usable symbol")
+
+    zttj = row.get("zttj")
+    zttj_days = None
+    zttj_ct = None
+    if isinstance(zttj, dict):
+        zttj_days = _coerce_int(zttj.get("days"))
+        zttj_ct = _coerce_int(zttj.get("ct"))
+
+    price_raw = _to_float(row.get("p"))
+    latest = None if price_raw is None else round(price_raw / 1000, 3)
+
+    return {
+        "symbol": symbol,
+        "name": str(row.get("n", "")).strip() or None,
+        "latest": latest,
+        "change_ratio": _to_float(row.get("zdp")),
+        "board_count": _coerce_int(row.get("lbc")),
+        "first_limit_time": _format_hhmmss(row.get("fbt")),
+        "last_limit_time": _format_hhmmss(row.get("lbt")),
+        "sector": str(row.get("hybk", "")).strip() or None,
+        "sealed_fund": _to_float(row.get("fund")),
+        "break_count": _coerce_int(row.get("zbc")),
+        "limit_stat_days": zttj_days,
+        "limit_stat_count": zttj_ct,
+    }
+
+
+def _eastmoney_symbol(code: str, market_code: object) -> str | None:
+    if not code:
+        return None
+    market = {0: "SZ", 1: "SH", 2: "BJ"}.get(_coerce_int(market_code))
+    if market is None:
+        if code.startswith(("600", "601", "603", "605", "688")):
+            market = "SH"
+        elif code.startswith(("4", "8", "92")):
+            market = "BJ"
+        else:
+            market = "SZ"
+    return f"{code}.{market}"
+
+
+def _format_hhmmss(value: object) -> str | None:
+    number = _coerce_int(value)
+    if number is None:
+        return None
+    text = f"{number:06d}"
+    return f"{text[0:2]}:{text[2:4]}:{text[4:6]}"
 
 
 def _decode_escaped_text(value: str) -> str:

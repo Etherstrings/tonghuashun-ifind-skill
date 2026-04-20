@@ -51,6 +51,9 @@ python3 {baseDir}/scripts/ifind_cli.py smart-query \
 
 python3 {baseDir}/scripts/ifind_cli.py smart-query \
   --query "看看宁德时代基本面"
+
+python3 {baseDir}/scripts/ifind_cli.py smart-query \
+  --query "今天的A股涨停数据"
 ```
 
 ## 显式稳定命令
@@ -67,6 +70,7 @@ python3 {baseDir}/scripts/ifind_cli.py fundamental-basic --symbol 300750
 
 - `quote-realtime`、`quote-history`、`market-snapshot` 会先走 iFinD
 - 如果 iFinD 查询失败，会自动回退到腾讯财经公开行情源
+- 涨停数据查询会先走 iFinD，失败时自动回退到东方财富公开涨停池
 - `fundamental-basic` 暂时没有公开源兜底
 
 ## 保留的原始薄封装

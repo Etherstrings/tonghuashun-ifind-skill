@@ -96,6 +96,29 @@
 - 当前不支持
 - 如果 iFinD 不可用，直接告诉用户当前 skill 没有稳定覆盖公开源基本面能力
 
+### 5. 涨停数据
+
+适用说法：
+
+- 今天的A股涨停数据
+- 今日涨停
+- 涨停板
+- 封板数据
+
+实际接口：
+
+- `/smart_stock_picking`
+
+默认规则：
+
+- 直接把用户原始问题作为 `searchstring`
+- `searchtype` 固定为 `stock`
+
+公开源兜底：
+
+- 东方财富公开涨停池 `https://push2ex.eastmoney.com/getTopicZTPool`
+- 如果 iFinD 不可用，自动回退到东方财富公开涨停池
+
 ## 什么时候不要猜
 
 以下情况不要直接乱拼 `api-call`：

@@ -13,6 +13,7 @@ Intent = Literal[
     "quote_history",
     "market_snapshot",
     "fundamental_basic",
+    "limit_up_screen",
     "manual_lookup",
 ]
 EntityType = Literal["stock", "index"]
@@ -92,6 +93,7 @@ _HISTORY_PATTERNS = (
     "近一年",
 )
 _MARKET_PATTERNS = ("大盘", "盘面", "市场表现", "市场快照", "指数")
+_LIMIT_UP_PATTERNS = ("涨停", "涨停板", "封板")
 _QUERY_NOISE_PATTERNS = (
     r"看看?",
     r"看下",
@@ -165,6 +167,8 @@ def build_route_plan(
         )
 
     intent = _detect_intent(normalized_query)
+    if intent == "limit_up_screen":
+        return build_limit_up_plan(normalized_query)
     if intent == "market_snapshot":
         return build_market_snapshot_plan(normalized_query)
 
@@ -252,6 +256,15 @@ def build_fundamental_plan(entity: ResolvedEntity) -> RoutePlan:
     )
 
 
+def build_limit_up_plan(query: str) -> RoutePlan:
+    return RoutePlan(
+        intent="limit_up_screen",
+        endpoint="/smart_stock_picking",
+        payload={"searchstring": query, "searchtype": "stock"},
+        entity=None,
+    )
+
+
 def resolve_common_index_entity(text: str) -> ResolvedEntity | None:
     normalized = (text or "").strip().lower()
     for alias, (name, symbol) in INDEX_ALIASES.items():
@@ -309,6 +322,8 @@ def normalize_symbol(text: str) -> str:
 
 def _detect_intent(query: str) -> Intent:
     lowered = query.lower()
+    if any(pattern in lowered for pattern in _LIMIT_UP_PATTERNS):
+        return "limit_up_screen"
     if any(pattern in lowered for pattern in _FUNDAMENTAL_PATTERNS):
         return "fundamental_basic"
     if _DATE_RANGE_RE.search(query) or any(pattern in lowered for pattern in _HISTORY_PATTERNS):
