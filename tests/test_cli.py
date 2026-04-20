@@ -417,6 +417,50 @@ def test_limit_up_query_falls_back_to_public_source_when_ifind_api_fails(
     assert result["data"]["provider"]["name"] == "eastmoney"
 
 
+def test_leaderboard_query_falls_back_to_public_source_when_ifind_auth_fails(
+    monkeypatch,
+    tmp_path,
+):
+    class FakeAuthManager:
+        def resolve_tokens(self):
+            raise RuntimeError("ifind unavailable")
+
+    class FakeTencentFallbackClient:
+        def __init__(self, **kwargs):
+            return None
+
+        def execute_plan(self, plan):
+            assert plan.intent == "leaderboard_screen"
+            assert plan.payload["fallback_type"] == "turnover"
+            assert plan.payload["limit"] == 10
+            return {
+                "provider": {"name": "eastmoney", "type": "public_http"},
+                "leaderboard_type": "turnover",
+                "items": [{"symbol": "600519.SH", "name": "贵州茅台"}],
+            }
+
+    monkeypatch.setattr("ifind_cli._build_auth_manager", lambda **kwargs: FakeAuthManager())
+    monkeypatch.setattr(
+        "tonghuashun_ifind_skill.fallback.TencentStockFallbackClient",
+        FakeTencentFallbackClient,
+    )
+
+    result = run_command(
+        [
+            "--state-path",
+            str(tmp_path / "token_state.json"),
+            "smart-query",
+            "--query",
+            "A股成交额榜前十",
+        ]
+    )
+
+    assert result["ok"] is True
+    assert result["token_source"] == "fallback:eastmoney"
+    assert result["data"]["intent"] == "leaderboard_screen"
+    assert result["data"]["provider"]["name"] == "eastmoney"
+
+
 def test_skill_package_contains_required_files():
     assert Path("tonghuashun-ifind/SKILL.md").exists()
     assert Path("tonghuashun-ifind/agents/openai.yaml").exists()

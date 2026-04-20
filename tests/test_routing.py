@@ -100,6 +100,61 @@ def test_limit_up_query_routes_to_smart_stock_picking_without_entity_lookup():
     }
 
 
+def test_leaderboard_query_routes_to_leaderboard_intent():
+    plan = build_route_plan(
+        "A股成交额榜前十",
+        entity_lookup=lambda _: None,
+        today=date(2026, 4, 20),
+    )
+
+    assert plan.intent == "leaderboard_screen"
+    assert plan.endpoint == "/smart_stock_picking"
+    assert plan.entity is None
+    assert plan.payload == {
+        "searchstring": "A股成交额榜前十",
+        "searchtype": "stock",
+        "fallback_type": "turnover",
+        "limit": 10,
+    }
+
+
+def test_stock_profile_query_routes_to_profile_intent():
+    def lookup(_: str) -> ResolvedEntity:
+        return ResolvedEntity(
+            raw="贵州茅台",
+            symbol="600519.SH",
+            name="贵州茅台",
+            entity_type="stock",
+        )
+
+    plan = build_route_plan(
+        "贵州茅台主营业务是什么",
+        entity_lookup=lookup,
+        today=date(2026, 4, 20),
+    )
+
+    assert plan.intent == "entity_profile"
+    assert plan.endpoint == "/smart_stock_picking"
+    assert plan.entity is not None
+    assert plan.entity.symbol == "600519.SH"
+
+
+def test_capital_flow_query_routes_to_capital_flow_intent():
+    plan = build_route_plan(
+        "今天主力资金流入前十",
+        entity_lookup=lambda _: None,
+        today=date(2026, 4, 20),
+    )
+
+    assert plan.intent == "capital_flow"
+    assert plan.endpoint == "/smart_stock_picking"
+    assert plan.entity is None
+    assert plan.payload == {
+        "searchstring": "今天主力资金流入前十",
+        "searchtype": "stock",
+    }
+
+
 def test_unsupported_query_returns_manual_lookup_fallback():
     plan = build_route_plan(
         "帮我找贵州茅台公告PDF下载链接并按日期排序",

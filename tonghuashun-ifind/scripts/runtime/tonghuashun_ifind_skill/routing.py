@@ -14,6 +14,9 @@ Intent = Literal[
     "market_snapshot",
     "fundamental_basic",
     "limit_up_screen",
+    "leaderboard_screen",
+    "entity_profile",
+    "capital_flow",
     "manual_lookup",
 ]
 EntityType = Literal["stock", "index"]
@@ -94,6 +97,24 @@ _HISTORY_PATTERNS = (
 )
 _MARKET_PATTERNS = ("大盘", "盘面", "市场表现", "市场快照", "指数")
 _LIMIT_UP_PATTERNS = ("涨停", "涨停板", "封板")
+_LEADERBOARD_PATTERNS = ("榜", "排行", "排名", "top", "前十", "前二十", "前30", "前50")
+_PROFILE_PATTERNS = (
+    "主营业务",
+    "公司简介",
+    "公司介绍",
+    "做什么",
+    "是做什么的",
+    "业务是什么",
+    "属于什么行业",
+)
+_CAPITAL_FLOW_PATTERNS = (
+    "资金流",
+    "主力资金",
+    "资金净流入",
+    "资金净流出",
+    "净流入",
+    "净流出",
+)
 _QUERY_NOISE_PATTERNS = (
     r"看看?",
     r"看下",
@@ -132,6 +153,16 @@ _QUERY_NOISE_PATTERNS = (
     r"近半年",
     r"近一年",
     r"近\d+天",
+    r"主营业务是什么",
+    r"主营业务",
+    r"业务是什么",
+    r"公司简介",
+    r"公司介绍",
+    r"做什么的",
+    r"是做什么的",
+    r"属于什么行业",
+    r"什么行业",
+    r"是什么",
 )
 
 
@@ -169,6 +200,10 @@ def build_route_plan(
     intent = _detect_intent(normalized_query)
     if intent == "limit_up_screen":
         return build_limit_up_plan(normalized_query)
+    if intent == "leaderboard_screen":
+        return build_leaderboard_plan(normalized_query)
+    if intent == "capital_flow":
+        return build_capital_flow_plan(normalized_query)
     if intent == "market_snapshot":
         return build_market_snapshot_plan(normalized_query)
 
@@ -182,6 +217,8 @@ def build_route_plan(
         return build_history_plan(entity, query=normalized_query, today=effective_today)
     if intent == "fundamental_basic":
         return build_fundamental_plan(entity)
+    if intent == "entity_profile":
+        return build_entity_profile_plan(entity, normalized_query)
     return build_realtime_plan(entity)
 
 
@@ -265,6 +302,39 @@ def build_limit_up_plan(query: str) -> RoutePlan:
     )
 
 
+def build_leaderboard_plan(query: str) -> RoutePlan:
+    fallback_type = _leaderboard_fallback_type(query)
+    return RoutePlan(
+        intent="leaderboard_screen",
+        endpoint="/smart_stock_picking",
+        payload={
+            "searchstring": query,
+            "searchtype": "stock",
+            "fallback_type": fallback_type,
+            "limit": _extract_rank_limit(query),
+        },
+        entity=None,
+    )
+
+
+def build_entity_profile_plan(entity: ResolvedEntity, query: str) -> RoutePlan:
+    return RoutePlan(
+        intent="entity_profile",
+        endpoint="/smart_stock_picking",
+        payload={"searchstring": query, "searchtype": "stock"},
+        entity=entity,
+    )
+
+
+def build_capital_flow_plan(query: str) -> RoutePlan:
+    return RoutePlan(
+        intent="capital_flow",
+        endpoint="/smart_stock_picking",
+        payload={"searchstring": query, "searchtype": "stock"},
+        entity=None,
+    )
+
+
 def resolve_common_index_entity(text: str) -> ResolvedEntity | None:
     normalized = (text or "").strip().lower()
     for alias, (name, symbol) in INDEX_ALIASES.items():
@@ -324,6 +394,12 @@ def _detect_intent(query: str) -> Intent:
     lowered = query.lower()
     if any(pattern in lowered for pattern in _LIMIT_UP_PATTERNS):
         return "limit_up_screen"
+    if any(pattern in lowered for pattern in _CAPITAL_FLOW_PATTERNS):
+        return "capital_flow"
+    if _is_leaderboard_query(lowered):
+        return "leaderboard_screen"
+    if any(pattern in lowered for pattern in _PROFILE_PATTERNS):
+        return "entity_profile"
     if any(pattern in lowered for pattern in _FUNDAMENTAL_PATTERNS):
         return "fundamental_basic"
     if _DATE_RANGE_RE.search(query) or any(pattern in lowered for pattern in _HISTORY_PATTERNS):
@@ -331,6 +407,25 @@ def _detect_intent(query: str) -> Intent:
     if any(pattern in lowered for pattern in _MARKET_PATTERNS):
         return "market_snapshot"
     return "quote_realtime"
+
+
+def _is_leaderboard_query(lowered_query: str) -> bool:
+    if not any(pattern in lowered_query for pattern in _LEADERBOARD_PATTERNS):
+        return False
+    return any(
+        pattern in lowered_query
+        for pattern in (
+            "成交额",
+            "成交金额",
+            "涨幅",
+            "跌幅",
+            "换手率",
+            "振幅",
+            "量比",
+            "领涨",
+            "领跌",
+        )
+    )
 
 
 def _needs_manual_lookup(query: str) -> bool:
@@ -406,6 +501,77 @@ def _relative_days(query: str) -> int:
     if "近一年" in lowered:
         return 365
     return 30
+
+
+def _leaderboard_fallback_type(query: str) -> str:
+    lowered = query.lower()
+    if "成交额" in lowered or "成交金额" in lowered:
+        return "turnover"
+    if "换手率" in lowered:
+        return "turnover_ratio"
+    if "振幅" in lowered:
+        return "amplitude"
+    if "量比" in lowered:
+        return "volume_ratio"
+    if "跌幅" in lowered or "领跌" in lowered:
+        return "losers"
+    return "gainers"
+
+
+def _extract_rank_limit(query: str) -> int:
+    lowered = query.lower()
+    english_match = re.search(r"top\s*(\d+)", lowered)
+    if english_match:
+        return max(1, int(english_match.group(1)))
+
+    digits_match = re.search(r"前\s*(\d+)", lowered)
+    if digits_match:
+        return max(1, int(digits_match.group(1)))
+
+    chinese_match = re.search(r"前([一二三四五六七八九十两百]+)", lowered)
+    if chinese_match:
+        parsed = _parse_chinese_number(chinese_match.group(1))
+        if parsed is not None:
+            return max(1, parsed)
+    return 20
+
+
+def _parse_chinese_number(text: str) -> int | None:
+    values = {
+        "零": 0,
+        "一": 1,
+        "二": 2,
+        "两": 2,
+        "三": 3,
+        "四": 4,
+        "五": 5,
+        "六": 6,
+        "七": 7,
+        "八": 8,
+        "九": 9,
+        "十": 10,
+        "百": 100,
+    }
+    cleaned = text.strip()
+    if not cleaned:
+        return None
+    if cleaned == "十":
+        return 10
+    if "百" in cleaned:
+        parts = cleaned.split("百", 1)
+        hundreds = values.get(parts[0], 1)
+        rest = _parse_chinese_number(parts[1]) if parts[1] else 0
+        if hundreds is None or rest is None:
+            return None
+        return hundreds * 100 + rest
+    if "十" in cleaned:
+        parts = cleaned.split("十", 1)
+        tens = values.get(parts[0], 1) if parts[0] else 1
+        units = values.get(parts[1], 0) if parts[1] else 0
+        if tens is None or units is None:
+            return None
+        return tens * 10 + units
+    return values.get(cleaned)
 
 
 def _manual_lookup_plan(note: str) -> RoutePlan:

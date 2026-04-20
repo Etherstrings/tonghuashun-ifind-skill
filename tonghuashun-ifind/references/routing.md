@@ -16,7 +16,12 @@
 2. `quote_history`
 3. `market_snapshot`
 
-`fundamental_basic` 目前没有公开源兜底。
+以下两类请求会先走 iFinD，失败时自动回退到东方财富公开接口：
+
+1. `limit_up_screen`
+2. `leaderboard_screen`
+
+`fundamental_basic`、`entity_profile`、`capital_flow` 目前没有公开源兜底。
 
 ## 当前内置支持
 
@@ -118,6 +123,74 @@
 
 - 东方财富公开涨停池 `https://push2ex.eastmoney.com/getTopicZTPool`
 - 如果 iFinD 不可用，自动回退到东方财富公开涨停池
+
+### 6. A 股榜单查询
+
+适用说法：
+
+- A股成交额榜前十
+- 今日涨幅榜
+- 跌幅榜前二十
+- 换手率排行
+- 振幅榜
+- 量比榜
+
+实际接口：
+
+- `/smart_stock_picking`
+
+默认规则：
+
+- 直接把用户原始问题作为 `searchstring`
+- `searchtype` 固定为 `stock`
+- 内部会补充 `fallback_type` 和 `limit`
+
+公开源兜底：
+
+- 东方财富公开排行接口 `https://push2.eastmoney.com/api/qt/clist/get`
+- 当前稳定支持：`turnover`、`gainers`、`losers`、`turnover_ratio`、`amplitude`、`volume_ratio`
+
+### 7. 个股画像 / 主营业务
+
+适用说法：
+
+- 贵州茅台主营业务是什么
+- 宁德时代公司简介
+- 这家公司是做什么的
+
+实际接口：
+
+- `/smart_stock_picking`
+
+默认规则：
+
+- 先解析股票标的
+- 再把用户原始问题作为 `searchstring`
+
+公开源兜底：
+
+- 当前不支持
+
+### 8. 资金流问题
+
+适用说法：
+
+- 今天主力资金流入前十
+- 某股票资金流向
+- 资金净流入排行
+
+实际接口：
+
+- `/smart_stock_picking`
+
+默认规则：
+
+- 直接把用户原始问题作为 `searchstring`
+- `searchtype` 固定为 `stock`
+
+公开源兜底：
+
+- 当前不支持
 
 ## 什么时候不要猜
 

@@ -183,3 +183,81 @@ def test_execute_plan_supports_limit_up_screen() -> None:
 
     assert result["provider"]["name"] == "eastmoney"
     assert result["limit_up_stocks"][0]["symbol"] == "002843.SZ"
+
+
+def test_eastmoney_leaderboard_parses_turnover_ranking_payload() -> None:
+    session = FakeSession()
+    session.queue_response(
+        FakeResponse(
+            json_payload={
+                "rc": 0,
+                "data": {
+                    "total": 2,
+                    "diff": [
+                        {
+                            "f12": "600519",
+                            "f14": "贵州茅台",
+                            "f2": 1462.84,
+                            "f3": -0.32,
+                            "f6": 3456789012.0,
+                            "f8": 0.83,
+                            "f10": 1.27,
+                        },
+                        {
+                            "f12": "300750",
+                            "f14": "宁德时代",
+                            "f2": 201.22,
+                            "f3": 2.13,
+                            "f6": 2987654321.0,
+                            "f8": 1.12,
+                            "f10": 1.56,
+                        },
+                    ],
+                },
+            }
+        )
+    )
+    client = TencentStockFallbackClient(session=session)
+
+    result = client.fetch_leaderboard(rank_type="turnover", limit=2)
+
+    assert result["provider"]["name"] == "eastmoney"
+    assert result["leaderboard_type"] == "turnover"
+    assert result["items"][0]["symbol"] == "600519.SH"
+    assert result["items"][0]["name"] == "贵州茅台"
+    assert result["items"][0]["turnover"] == 3456789012.0
+
+
+def test_execute_plan_supports_leaderboard_screen() -> None:
+    session = FakeSession()
+    session.queue_response(
+        FakeResponse(
+            json_payload={
+                "rc": 0,
+                "data": {
+                    "total": 1,
+                    "diff": [{"f12": "600519", "f14": "贵州茅台", "f2": 1462.84, "f3": -0.32, "f6": 3456789012.0}],
+                },
+            }
+        )
+    )
+    client = TencentStockFallbackClient(session=session)
+
+    result = client.execute_plan(
+        RoutePlan(
+            intent="leaderboard_screen",
+            endpoint="/smart_stock_picking",
+            payload={
+                "searchstring": "A股成交额榜前十",
+                "searchtype": "stock",
+                "fallback_type": "turnover",
+                "limit": 10,
+            },
+            entity=None,
+            note=None,
+        )
+    )
+
+    assert result["provider"]["name"] == "eastmoney"
+    assert result["leaderboard_type"] == "turnover"
+    assert result["items"][0]["symbol"] == "600519.SH"

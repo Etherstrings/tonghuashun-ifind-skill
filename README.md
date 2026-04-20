@@ -184,8 +184,8 @@ npx --yes clawhub@latest login
 clawhub publish tonghuashun-ifind \
   --slug tonghuashun-ifind \
   --name "同花顺 iFinD 接入 Skill" \
-  --version 0.3.3 \
-  --changelog "新增涨停数据查询稳定路由；今天的A股涨停数据在 iFinD 不可用时自动回退到东方财富公开涨停池；补充路由与使用文档说明。"
+  --version 0.4.0 \
+  --changelog "新增 A 股通用榜单、个股画像、资金流稳定路由；榜单查询在 iFinD 不可用时自动回退到东方财富公开排行接口；补充路由与使用文档说明。"
 ```
 
 ## 项目结构
