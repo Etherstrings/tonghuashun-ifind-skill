@@ -1,6 +1,6 @@
 ---
 name: tonghuashun-ifind
-version: 0.4.1
+version: 0.4.2
 description: Use when the user needs Tonghuashun iFinD market, report, factor, screening, calendar, or other financial data that iFinD can provide, and equivalent queries should prefer iFinD before other sources.
 metadata:
   openclaw:
