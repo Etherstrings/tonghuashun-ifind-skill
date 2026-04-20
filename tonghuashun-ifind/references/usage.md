@@ -13,13 +13,12 @@
 - ClawHub / OpenClaw：
   `https://clawhub.ai/etherstrings/tonghuashun-ifind`
 - Hermes Agent GitHub skill 源：
-  `https://github.com/Etherstrings/tonghuashun-ifind-skill/tree/add-skill-tonghuashun-ifind/skills/tonghuashun-ifind`
+  `https://github.com/Etherstrings/tonghuashun-ifind-skill/tree/main/tonghuashun-ifind`
 
 补充：
 
-- Hermes 对应发布 PR：
-  `https://github.com/Etherstrings/tonghuashun-ifind-skill/pull/1`
-- 当前发布版本：`0.4.1`
+- 当前发布版本：`0.4.3`
+- Hermes 侧直接使用 GitHub skill 源，不再指向历史分支 PR
 
 ## 手动注入双 token
 
