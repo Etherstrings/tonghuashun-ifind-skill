@@ -14,7 +14,18 @@ TENCENT_QUOTE_URL = "https://qt.gtimg.cn/q="
 TENCENT_SEARCH_URL = "https://smartbox.gtimg.cn/s3/"
 TENCENT_HISTORY_URL = "https://web.ifzq.gtimg.cn/appstock/app/fqkline/get"
 EASTMONEY_LIMIT_UP_URL = "https://push2ex.eastmoney.com/getTopicZTPool"
+EASTMONEY_LEADERBOARD_URL = "https://push2.eastmoney.com/api/qt/clist/get"
 EASTMONEY_LIMIT_UP_UT = "7eea3edcaed734bea9cbfc24409ed989"
+EASTMONEY_A_STOCK_FS = "m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23"
+
+LEADERBOARD_PARAM_MAP: dict[str, dict[str, object]] = {
+    "gainers": {"fid": "f3", "po": 1},
+    "losers": {"fid": "f3", "po": 0},
+    "turnover": {"fid": "f6", "po": 1},
+    "turnover_ratio": {"fid": "f8", "po": 1},
+    "amplitude": {"fid": "f7", "po": 1},
+    "volume_ratio": {"fid": "f10", "po": 1},
+}
 
 
 class TencentStockFallbackClient:
@@ -204,6 +215,67 @@ class TencentStockFallbackClient:
             "limit_up_stocks": records,
         }
 
+    def fetch_leaderboard(
+        self,
+        *,
+        rank_type: str,
+        limit: int,
+    ) -> dict[str, object]:
+        rank_config = LEADERBOARD_PARAM_MAP.get(rank_type)
+        if rank_config is None:
+            raise ValueError(f"unsupported leaderboard rank type: {rank_type}")
+
+        page_size = max(1, min(int(limit), 100))
+        response = self.session.get(
+            EASTMONEY_LEADERBOARD_URL,
+            params={
+                "pn": 1,
+                "pz": page_size,
+                "po": rank_config["po"],
+                "np": 1,
+                "ut": EASTMONEY_LIMIT_UP_UT,
+                "fltt": 2,
+                "invt": 2,
+                "fid": rank_config["fid"],
+                "fs": EASTMONEY_A_STOCK_FS,
+                "fields": "f12,f14,f2,f3,f6,f7,f8,f9,f10",
+            },
+            timeout=self.timeout,
+        )
+        response.raise_for_status()
+        payload = response.json()
+        if not isinstance(payload, dict):
+            raise ValueError("eastmoney leaderboard response must be a JSON object")
+        if payload.get("rc") not in (0, "0", None):
+            raise ValueError("eastmoney leaderboard response returned error")
+
+        data = payload.get("data")
+        if not isinstance(data, dict):
+            raise ValueError("eastmoney leaderboard response missing data")
+        diff = data.get("diff")
+        if not isinstance(diff, list):
+            raise ValueError("eastmoney leaderboard response missing diff")
+
+        items = [
+            _parse_eastmoney_leaderboard_row(item)
+            for item in diff
+            if isinstance(item, dict)
+        ]
+        if not items:
+            raise ValueError("eastmoney leaderboard response did not contain records")
+
+        return {
+            "provider": {
+                "name": "eastmoney",
+                "type": "public_http",
+                "channel": "clist",
+            },
+            "leaderboard_type": rank_type,
+            "total_count": _coerce_int(data.get("total")) or len(items),
+            "returned_count": len(items),
+            "items": items,
+        }
+
     def execute_plan(self, plan: RoutePlan) -> dict[str, object]:
         if plan.intent in {"quote_realtime", "market_snapshot"}:
             payload = plan.payload or {}
@@ -224,6 +296,11 @@ class TencentStockFallbackClient:
             )
         if plan.intent == "limit_up_screen":
             return self.fetch_limit_up_pool(trade_date=date.today())
+        if plan.intent == "leaderboard_screen":
+            payload = plan.payload or {}
+            rank_type = str(payload.get("fallback_type", "gainers"))
+            limit = _coerce_int(payload.get("limit")) or 20
+            return self.fetch_leaderboard(rank_type=rank_type, limit=limit)
         raise ValueError(f"unsupported fallback intent: {plan.intent}")
 
     @staticmethod
@@ -361,6 +438,25 @@ def _parse_eastmoney_limit_up_row(row: dict[str, object]) -> dict[str, object]:
         "break_count": _coerce_int(row.get("zbc")),
         "limit_stat_days": zttj_days,
         "limit_stat_count": zttj_ct,
+    }
+
+
+def _parse_eastmoney_leaderboard_row(row: dict[str, object]) -> dict[str, object]:
+    code = str(row.get("f12", "")).strip()
+    symbol = normalize_symbol(code)
+    if not symbol:
+        raise ValueError("eastmoney leaderboard row missing usable symbol")
+
+    return {
+        "symbol": symbol,
+        "name": str(row.get("f14", "")).strip() or None,
+        "latest": _to_float(row.get("f2")),
+        "change_ratio": _to_float(row.get("f3")),
+        "turnover": _to_float(row.get("f6")),
+        "amplitude": _to_float(row.get("f7")),
+        "turnover_ratio": _to_float(row.get("f8")),
+        "pe": _to_float(row.get("f9")),
+        "volume_ratio": _to_float(row.get("f10")),
     }
 
 

@@ -619,6 +619,7 @@ def _execute_public_fallback(
         "quote_history",
         "market_snapshot",
         "limit_up_screen",
+        "leaderboard_screen",
     }:
         return None
     try:

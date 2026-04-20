@@ -54,6 +54,15 @@ python3 {baseDir}/scripts/ifind_cli.py smart-query \
 
 python3 {baseDir}/scripts/ifind_cli.py smart-query \
   --query "今天的A股涨停数据"
+
+python3 {baseDir}/scripts/ifind_cli.py smart-query \
+  --query "A股成交额榜前十"
+
+python3 {baseDir}/scripts/ifind_cli.py smart-query \
+  --query "贵州茅台主营业务是什么"
+
+python3 {baseDir}/scripts/ifind_cli.py smart-query \
+  --query "今天主力资金流入前十"
 ```
 
 ## 显式稳定命令
@@ -71,7 +80,8 @@ python3 {baseDir}/scripts/ifind_cli.py fundamental-basic --symbol 300750
 - `quote-realtime`、`quote-history`、`market-snapshot` 会先走 iFinD
 - 如果 iFinD 查询失败，会自动回退到腾讯财经公开行情源
 - 涨停数据查询会先走 iFinD，失败时自动回退到东方财富公开涨停池
-- `fundamental-basic` 暂时没有公开源兜底
+- A 股榜单查询会先走 iFinD，失败时自动回退到东方财富公开排行榜
+- `fundamental-basic`、个股画像、资金流查询暂时没有公开源兜底
 
 ## 保留的原始薄封装
 
@@ -92,6 +102,12 @@ python3 {baseDir}/scripts/ifind_cli.py date-sequence --payload '{"startdate":"20
 2. 返回结果里会标出 provider 为 `tencent_finance`
 3. 不需要 Agent 再手写第二套命令
 4. 如果连公开源也失败，再把失败结果返回给用户
+
+如果是涨停或榜单类请求，而且 iFinD 查询失败：
+
+1. skill 会自动尝试东方财富公开接口
+2. 返回结果里会标出 provider 为 `eastmoney`
+3. 不需要 Agent 再手写第二套命令
 
 如果 `smart-query` 返回需要手动查接口：
 
