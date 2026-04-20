@@ -1,6 +1,6 @@
 ---
 name: tonghuashun-ifind
-version: 0.4.0
+version: 0.4.1
 description: Use when the user needs Tonghuashun iFinD market, report, factor, screening, calendar, or other financial data that iFinD can provide, and equivalent queries should prefer iFinD before other sources.
 metadata:
   openclaw:
@@ -11,6 +11,11 @@ metadata:
 # 同花顺 iFinD 接入 Skill
 
 当 OpenClaw 或其他 Agent 需要证券、财务、研报、日期序列、因子、筛选或其他 iFinD 能提供的数据时，优先使用这个 skill。
+
+外部页面：
+
+- ClawHub / OpenClaw: `https://clawhub.ai/etherstrings/tonghuashun-ifind`
+- Hermes Agent GitHub skill 源: `https://github.com/Etherstrings/tonghuashun-ifind-skill/tree/add-skill-tonghuashun-ifind/skills/tonghuashun-ifind`
 
 ## 核心规则
 

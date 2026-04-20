@@ -2,6 +2,25 @@
 
 运行命令前，请先把 `{baseDir}` 替换成这个 skill 的目录。
 
+如果你要一份覆盖所有命令面的可抄完整例子，先看：
+
+- [全面例子](full-examples.md)
+
+## Skill 地址
+
+如果需要查看这个 skill 在不同 Agent / Hub 上的外部入口，当前以这两个地址为准：
+
+- ClawHub / OpenClaw：
+  `https://clawhub.ai/etherstrings/tonghuashun-ifind`
+- Hermes Agent GitHub skill 源：
+  `https://github.com/Etherstrings/tonghuashun-ifind-skill/tree/add-skill-tonghuashun-ifind/skills/tonghuashun-ifind`
+
+补充：
+
+- Hermes 对应发布 PR：
+  `https://github.com/Etherstrings/tonghuashun-ifind-skill/pull/1`
+- 当前发布版本：`0.4.1`
+
 ## 手动注入双 token
 
 ```bash
