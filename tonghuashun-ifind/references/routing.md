@@ -2,11 +2,16 @@
 
 这个 skill 的目标不是把所有 iFinD API 都自动猜出来，而是先把高频问题做成稳定路由。
 
+如果你要先判断“这个能力有没有、免费源能不能兜底”，先看：
+
+- [能力矩阵](capability-matrix.md)
+
 ## 优先顺序
 
 1. 对于常见问题，优先使用 `smart-query`
 2. 如果请求已经很明确，也可以直接使用显式稳定命令
-3. 只有在常见路由未覆盖时，才考虑 `api-call`
+3. 如果需要更多已封装接口，先用 `endpoint-list` 查看目录，再用 `endpoint-call`
+4. 只有在常见路由和命名接口目录都未覆盖时，才考虑 `api-call`
 
 ## 自动兜底
 
@@ -22,6 +27,12 @@
 2. `leaderboard_screen`
 
 `fundamental_basic`、`entity_profile`、`capital_flow` 目前没有公开源兜底。
+
+这意味着：
+
+- 没有 iFinD 账号时，`quote_realtime`、`quote_history`、`market_snapshot`、`limit_up_screen`、`leaderboard_screen` 仍然应该继续执行
+- 不要因为“没有 iFinD 账号”就直接告诉用户当前 skill 不能用
+- 回复里应明确说明当前结果来自免费公开源
 
 ## 当前内置支持
 
@@ -207,6 +218,18 @@
 2. 如果仍然没有明确映射，告诉用户：
 
 `当前 tonghuashun-ifind skill 没有稳定覆盖这个 iFinD 能力。`
+
+如果只是“常见路由没命中，但 skill 里可能已经封过接口名”，先执行：
+
+```bash
+python3 {baseDir}/scripts/ifind_cli.py endpoint-list
+```
+
+如果目录里已经有目标能力，对应执行：
+
+```bash
+python3 {baseDir}/scripts/ifind_cli.py endpoint-call --name history_quote --payload '{...}'
+```
 
 ## 手动兜底
 

@@ -116,6 +116,59 @@ def test_tencent_quote_history_parses_kline_payload() -> None:
     assert result["candles"][1]["close"] == 1462.84
 
 
+def test_quote_history_can_be_supplemented_with_eastmoney_snapshot_for_volume_ratio() -> None:
+    session = FakeSession()
+    session.queue_response(
+        FakeResponse(
+            content=(
+                'kline_dayqfq={"code":0,"msg":"","data":{"sh600004":{"day":[["2026-04-21","8.880","8.890","8.950","8.870","80106.000"]]}}}'
+            ).encode("utf-8"),
+        )
+    )
+    session.queue_response(
+        FakeResponse(
+            json_payload={
+                "rc": 0,
+                "data": {
+                    "f43": 889,
+                    "f44": 895,
+                    "f45": 887,
+                    "f46": 888,
+                    "f47": 80106,
+                    "f48": 71363822.0,
+                    "f50": 130,
+                    "f57": "600004",
+                    "f58": "白云机场",
+                    "f60": 889,
+                    "f170": 0,
+                },
+            }
+        )
+    )
+    client = TencentStockFallbackClient(session=session)
+
+    result = client.execute_plan(
+        RoutePlan(
+            intent="quote_history",
+            endpoint="/cmd_history_quotation",
+            payload={
+                "codes": "600004.SH",
+                "startdate": "2026-04-21",
+                "enddate": "2026-04-21",
+                "include_volume_ratio": True,
+            },
+            entity=type("Entity", (), {"symbol": "600004.SH"})(),
+            note=None,
+        )
+    )
+
+    assert result["provider"]["name"] == "tencent_finance"
+    assert result["candles"][0]["open"] == 8.88
+    assert result["snapshot"]["provider"]["name"] == "eastmoney"
+    assert result["snapshot"]["name"] == "白云机场"
+    assert result["snapshot"]["volume_ratio"] == 1.3
+
+
 def test_eastmoney_limit_up_pool_parses_public_payload() -> None:
     session = FakeSession()
     session.queue_response(

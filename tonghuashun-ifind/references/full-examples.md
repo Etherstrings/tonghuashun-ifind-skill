@@ -6,6 +6,7 @@
 
 - 下面全部使用真实股票、指数、日期和自然语言问法，不再用占位符股票名
 - `smart-query` 和稳定路由是当前最推荐的入口
+- 常见路由不够时，先看 `endpoint-list` / `endpoint-call`
 - `basic-data`、`smart-pick`、`report-query`、`date-sequence` 属于透传 wrapper，示例会给最小可抄写法
 - 如果你的 iFinD 账号对某个 endpoint 有更严格的字段要求，以你账号对应文档为准
 
@@ -62,6 +63,30 @@ python3 {baseDir}/scripts/ifind_cli.py smart-query \
 - intent: `leaderboard_screen`
 - endpoint: `/smart_stock_picking`
 - iFinD 失败时自动回退东方财富公开排行榜
+
+### 1.5 没有 iFinD 账号时也能查的真实例子
+
+```bash
+python3 {baseDir}/scripts/ifind_cli.py quote-history \
+  --symbol 600004.SH \
+  --start-date 2026-04-21 \
+  --end-date 2026-04-21
+```
+
+免费源实测可返回：
+
+- 开盘 `8.88`
+- 收盘 `8.89`
+
+```bash
+python3 {baseDir}/scripts/ifind_cli.py quote-realtime --symbol 600004.SH
+```
+
+免费源实测可返回：
+
+- 名称 `白云机场`
+
+如果用户还需要量比，这个 skill 当前应继续补查公开源，而不是停在“没有 iFinD 账号”。
 
 ## 2. `smart-query` 全路由真实例子
 
@@ -270,7 +295,70 @@ python3 {baseDir}/scripts/ifind_cli.py fundamental-basic --symbol 300750
 python3 {baseDir}/scripts/ifind_cli.py fundamental-basic --symbol 600519.SH
 ```
 
-## 4. 原始 `api-call` 真实例子
+## 4. 命名接口目录真实例子
+
+### 4.1 先列出当前已封装接口
+
+```bash
+python3 {baseDir}/scripts/ifind_cli.py endpoint-list
+```
+
+你应该能看到至少这些名字：
+
+- `basic_data`
+- `smart_pick`
+- `report_query`
+- `date_sequence`
+- `real_time_quote`
+- `history_quote`
+- `limit_up_screen`
+- `leaderboard_screen`
+- `fundamental_basic`
+- `entity_profile`
+- `capital_flow`
+
+### 4.2 按命名接口取实时行情
+
+```bash
+python3 {baseDir}/scripts/ifind_cli.py endpoint-call \
+  --name real_time_quote \
+  --payload '{"codes":"600519.SH,000300.SH"}'
+```
+
+对应实际 endpoint：
+
+- `/real_time_quotation`
+
+### 4.3 按命名接口取历史行情
+
+```bash
+python3 {baseDir}/scripts/ifind_cli.py endpoint-call \
+  --name history_quote \
+  --payload '{"codes":"600004.SH","indicators":"open,close,high,low,volume","startdate":"2026-04-21","enddate":"2026-04-21"}'
+```
+
+对应实际 endpoint：
+
+- `/cmd_history_quotation`
+
+### 4.4 按命名接口取涨停池
+
+```bash
+python3 {baseDir}/scripts/ifind_cli.py endpoint-call \
+  --name limit_up_screen \
+  --payload '{"searchstring":"今天的A股涨停数据","searchtype":"stock"}'
+```
+
+对应实际 endpoint：
+
+- `/smart_stock_picking`
+
+说明：
+
+- `limit_up_screen` 是能力别名，底层仍调用 `/smart_stock_picking`
+- 如果 iFinD 不可用，常见问法更推荐继续走 `smart-query`，这样 skill 才能自动回退到免费源
+
+## 5. 原始 `api-call` 真实例子
 
 当你已经明确知道 endpoint 和 payload 时，直接用：
 
@@ -288,7 +376,7 @@ python3 {baseDir}/scripts/ifind_cli.py api-call \
   --payload '{"codes":"600519.SH","indicators":"open,high,low,latest,changeRatio,change,preClose,volume,amount"}'
 ```
 
-## 5. 四个薄封装 wrapper 的真实例子
+## 6. 四个薄封装 wrapper 的真实例子
 
 这四个命令本质上都是把 payload 原样转发给对应 endpoint。
 
@@ -342,16 +430,17 @@ python3 {baseDir}/scripts/ifind_cli.py date-sequence \
 
 - `/date_sequence`
 
-## 6. 推荐怎么选接口
+## 7. 推荐怎么选接口
 
 如果你只是想让 Agent 回答大多数 A 股常见问题：
 
 1. 先用 `smart-query`
 2. 已知证券代码且只想查行情时，再用 `quote-realtime` / `quote-history`
-3. 已知 endpoint 和 payload 时，才用 `api-call`
-4. 只有明确知道某个薄封装对应接口时，才直接用 `basic-data` / `smart-pick` / `report-query` / `date-sequence`
+3. 常见路由不够但 skill 已经封了名字时，先 `endpoint-list`，再 `endpoint-call`
+4. 已知 endpoint 和 payload 时，才用 `api-call`
+5. 只有明确知道某个薄封装对应接口时，才直接用 `basic-data` / `smart-pick` / `report-query` / `date-sequence`
 
-## 7. 一个不要乱猜的反例
+## 8. 一个不要乱猜的反例
 
 下面这种请求不要直接编 payload：
 

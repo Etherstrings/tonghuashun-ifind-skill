@@ -151,6 +151,85 @@ def test_cli_smart_query_routes_to_routed_handler(monkeypatch, tmp_path):
     assert captured["state_path"] == tmp_path / "token_state.json"
 
 
+def test_endpoint_list_returns_catalog() -> None:
+    result = run_command(["endpoint-list"])
+
+    assert result["ok"] is True
+    assert result["endpoint"] == "/endpoint_catalog"
+    endpoints = result["data"]["endpoints"]
+    assert any(item["name"] == "basic_data" for item in endpoints)
+    assert any(item["name"] == "history_quote" for item in endpoints)
+
+
+def test_endpoint_call_routes_named_endpoint(monkeypatch, tmp_path):
+    class FakeAuthManager:
+        def resolve_tokens(self):
+            return (
+                SimpleNamespace(
+                    access_token="access-demo",
+                    refresh_token="refresh-demo",
+                    expires_at="2099-01-01T00:00:00Z",
+                ),
+                "cache",
+            )
+
+    class FakeClient:
+        def __init__(self, *, base_url, session=None, timeout=30.0, now=None):
+            self.base_url = base_url
+
+        def call_named_endpoint(self, name, payload, access_token, token_source):
+            assert name == "history_quote"
+            assert payload["codes"] == "600004.SH"
+            assert access_token == "access-demo"
+            assert token_source == "cache"
+            return {
+                "ok": True,
+                "endpoint": "/cmd_history_quotation",
+                "token_source": token_source,
+                "data": {"rows": [{"open": 8.88, "close": 8.89}]},
+                "error": None,
+                "meta": {},
+            }
+
+    monkeypatch.setattr("ifind_cli._build_auth_manager", lambda **kwargs: FakeAuthManager())
+    monkeypatch.setattr("tonghuashun_ifind_skill.client.IFindClient", FakeClient)
+
+    result = run_command(
+        [
+            "--state-path",
+            str(tmp_path / "token_state.json"),
+            "endpoint-call",
+            "--name",
+            "history_quote",
+            "--payload",
+            '{"codes":"600004.SH","startdate":"2026-04-21","enddate":"2026-04-21"}',
+        ]
+    )
+
+    assert result["ok"] is True
+    assert result["endpoint"] == "/cmd_history_quotation"
+    assert result["data"]["rows"][0]["open"] == 8.88
+
+
+def test_endpoint_call_rejects_unknown_name(tmp_path):
+    result = run_command(
+        [
+            "--state-path",
+            str(tmp_path / "token_state.json"),
+            "endpoint-call",
+            "--name",
+            "not_exist",
+            "--payload",
+            "{}",
+        ]
+    )
+
+    assert result["ok"] is False
+    assert result["endpoint"] == "/endpoint_catalog"
+    assert result["error"]["type"] == "invalid_request"
+    assert "unknown endpoint name" in result["error"]["message"]
+
+
 def test_quote_realtime_falls_back_to_tencent_when_ifind_auth_fails(
     monkeypatch,
     tmp_path,
@@ -191,6 +270,64 @@ def test_quote_realtime_falls_back_to_tencent_when_ifind_auth_fails(
     assert result["token_source"] == "fallback:tencent"
     assert result["data"]["provider"]["name"] == "tencent_finance"
     assert result["data"]["entity"]["symbol"] == "600519.SH"
+
+
+def test_quote_history_falls_back_to_tencent_when_ifind_auth_fails(
+    monkeypatch,
+    tmp_path,
+):
+    class FakeAuthManager:
+        def resolve_tokens(self):
+            raise RuntimeError("ifind unavailable")
+
+    class FakeTencentFallbackClient:
+        def __init__(self, **kwargs):
+            return None
+
+        def execute_plan(self, plan):
+            assert plan.intent == "quote_history"
+            assert plan.entity is not None
+            assert plan.entity.symbol == "600004.SH"
+            assert plan.payload["startdate"] == "2026-04-21"
+            assert plan.payload["enddate"] == "2026-04-21"
+            return {
+                "provider": {"name": "tencent_finance"},
+                "symbol": "600004.SH",
+                "candles": [
+                    {
+                        "date": "2026-04-21",
+                        "open": 8.88,
+                        "close": 8.89,
+                    }
+                ],
+            }
+
+    monkeypatch.setattr("ifind_cli._build_auth_manager", lambda **kwargs: FakeAuthManager())
+    monkeypatch.setattr(
+        "tonghuashun_ifind_skill.fallback.TencentStockFallbackClient",
+        FakeTencentFallbackClient,
+    )
+
+    result = run_command(
+        [
+            "--state-path",
+            str(tmp_path / "token_state.json"),
+            "quote-history",
+            "--symbol",
+            "600004",
+            "--start-date",
+            "2026-04-21",
+            "--end-date",
+            "2026-04-21",
+        ]
+    )
+
+    assert result["ok"] is True
+    assert result["token_source"] == "fallback:tencent"
+    assert result["data"]["provider"]["name"] == "tencent_finance"
+    assert result["data"]["entity"]["symbol"] == "600004.SH"
+    assert result["data"]["response"]["candles"][0]["open"] == 8.88
+    assert result["data"]["response"]["candles"][0]["close"] == 8.89
 
 
 def test_smart_query_uses_tencent_search_when_ifind_lookup_unavailable(
@@ -243,6 +380,62 @@ def test_smart_query_uses_tencent_search_when_ifind_lookup_unavailable(
     assert result["ok"] is True
     assert result["token_source"] == "fallback:tencent"
     assert result["data"]["entity"]["symbol"] == "600519.SH"
+
+
+def test_smart_query_with_numeric_stock_code_uses_public_fallback_without_ifind_lookup(
+    monkeypatch,
+    tmp_path,
+):
+    class FakeAuthManager:
+        def resolve_tokens(self):
+            raise RuntimeError("ifind unavailable")
+
+    class FakeTencentFallbackClient:
+        def __init__(self, **kwargs):
+            return None
+
+        def search_entity(self, text):
+            raise AssertionError(f"numeric stock code should not trigger entity lookup: {text}")
+
+        def execute_plan(self, plan):
+            assert plan.intent == "quote_history"
+            assert plan.entity is not None
+            assert plan.entity.symbol == "600004.SH"
+            return {
+                "provider": {"name": "tencent_finance"},
+                "symbol": "600004.SH",
+                "snapshot": {"provider": {"name": "eastmoney"}, "volume_ratio": 1.3},
+                "candles": [
+                    {
+                        "date": "2026-04-21",
+                        "open": 8.88,
+                        "close": 8.89,
+                    }
+                ],
+            }
+
+    monkeypatch.setattr("ifind_cli._build_auth_manager", lambda **kwargs: FakeAuthManager())
+    monkeypatch.setattr(
+        "tonghuashun_ifind_skill.fallback.TencentStockFallbackClient",
+        FakeTencentFallbackClient,
+    )
+
+    result = run_command(
+        [
+            "--state-path",
+            str(tmp_path / "token_state.json"),
+            "smart-query",
+            "--query",
+            "600004 2026-04-21 开盘价 收盘价",
+        ]
+    )
+
+    assert result["ok"] is True
+    assert result["token_source"] == "fallback:tencent"
+    assert result["data"]["intent"] == "quote_history"
+    assert result["data"]["entity"]["symbol"] == "600004.SH"
+    assert result["data"]["response"]["candles"][0]["close"] == 8.89
+    assert result["data"]["response"]["snapshot"]["volume_ratio"] == 1.3
 
 
 def test_smart_query_limit_up_uses_smart_stock_picking_route(monkeypatch, tmp_path):
@@ -459,6 +652,50 @@ def test_leaderboard_query_falls_back_to_public_source_when_ifind_auth_fails(
     assert result["token_source"] == "fallback:eastmoney"
     assert result["data"]["intent"] == "leaderboard_screen"
     assert result["data"]["provider"]["name"] == "eastmoney"
+
+
+def test_volume_ratio_leaderboard_falls_back_to_eastmoney_when_ifind_auth_fails(
+    monkeypatch,
+    tmp_path,
+):
+    class FakeAuthManager:
+        def resolve_tokens(self):
+            raise RuntimeError("ifind unavailable")
+
+    class FakeTencentFallbackClient:
+        def __init__(self, **kwargs):
+            return None
+
+        def execute_plan(self, plan):
+            assert plan.intent == "leaderboard_screen"
+            assert plan.payload["fallback_type"] == "volume_ratio"
+            return {
+                "provider": {"name": "eastmoney", "type": "public_http"},
+                "leaderboard_type": "volume_ratio",
+                "items": [{"symbol": "603788.SH", "name": "宁波高发", "volume_ratio": 9.6}],
+            }
+
+    monkeypatch.setattr("ifind_cli._build_auth_manager", lambda **kwargs: FakeAuthManager())
+    monkeypatch.setattr(
+        "tonghuashun_ifind_skill.fallback.TencentStockFallbackClient",
+        FakeTencentFallbackClient,
+    )
+
+    result = run_command(
+        [
+            "--state-path",
+            str(tmp_path / "token_state.json"),
+            "smart-query",
+            "--query",
+            "量比榜前十",
+        ]
+    )
+
+    assert result["ok"] is True
+    assert result["token_source"] == "fallback:eastmoney"
+    assert result["data"]["intent"] == "leaderboard_screen"
+    assert result["data"]["provider"]["name"] == "eastmoney"
+    assert result["data"]["request"]["payload"]["fallback_type"] == "volume_ratio"
 
 
 def test_skill_package_contains_required_files():

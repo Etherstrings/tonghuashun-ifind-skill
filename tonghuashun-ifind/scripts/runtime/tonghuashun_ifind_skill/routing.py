@@ -62,6 +62,8 @@ _ETF_SH_PREFIXES = ("50", "51", "52", "56", "58")
 _ETF_SZ_PREFIXES = ("15", "16", "18")
 _SYMBOL_RE = re.compile(r"(?i)\b(?:sh|sz|bj)?\d{6}(?:\.(?:sh|sz|bj))?\b")
 _DATE_RANGE_RE = re.compile(r"(?P<start>\d{4}-\d{2}-\d{2}).*?(?P<end>\d{4}-\d{2}-\d{2})")
+_SINGLE_DATE_RE = re.compile(r"(?P<date>\d{4}-\d{2}-\d{2})")
+_MONTH_DAY_RE = re.compile(r"(?P<month>\d{1,2})月(?P<day>\d{1,2})[日号]?")
 _MANUAL_LOOKUP_PATTERNS = ("公告", "pdf", "下载链接", "全文下载", "原文")
 _FUNDAMENTAL_PATTERNS = (
     "基本面",
@@ -114,6 +116,15 @@ _CAPITAL_FLOW_PATTERNS = (
     "资金净流出",
     "净流入",
     "净流出",
+)
+_PRICE_FIELD_PATTERNS = (
+    "开盘价",
+    "收盘价",
+    "最高价",
+    "最低价",
+    "成交量",
+    "成交额",
+    "量比",
 )
 _QUERY_NOISE_PATTERNS = (
     r"看看?",
@@ -257,6 +268,7 @@ def build_history_plan(
             "indicators": HISTORY_INDICATORS,
             "startdate": start_value,
             "enddate": end_value,
+            "include_volume_ratio": _query_requests_volume_ratio(query),
         },
         entity=entity,
     )
@@ -402,6 +414,8 @@ def _detect_intent(query: str) -> Intent:
         return "entity_profile"
     if any(pattern in lowered for pattern in _FUNDAMENTAL_PATTERNS):
         return "fundamental_basic"
+    if _looks_like_dated_price_lookup(query, lowered):
+        return "quote_history"
     if _DATE_RANGE_RE.search(query) or any(pattern in lowered for pattern in _HISTORY_PATTERNS):
         return "quote_history"
     if any(pattern in lowered for pattern in _MARKET_PATTERNS):
@@ -480,9 +494,29 @@ def _parse_date_range(query: str, *, today: date) -> tuple[str, str]:
     if match:
         return match.group("start"), match.group("end")
 
+    single_date = _extract_single_date(query, today=today)
+    if single_date is not None:
+        return single_date, single_date
+
     days = _relative_days(query)
     start = today - timedelta(days=days)
     return start.isoformat(), today.isoformat()
+
+
+def _extract_single_date(query: str, *, today: date) -> str | None:
+    single_date_match = _SINGLE_DATE_RE.search(query or "")
+    if single_date_match:
+        return single_date_match.group("date")
+
+    month_day_match = _MONTH_DAY_RE.search(query or "")
+    if not month_day_match:
+        return None
+    month = int(month_day_match.group("month"))
+    day = int(month_day_match.group("day"))
+    try:
+        return date(today.year, month, day).isoformat()
+    except ValueError:
+        return None
 
 
 def _relative_days(query: str) -> int:
@@ -501,6 +535,17 @@ def _relative_days(query: str) -> int:
     if "近一年" in lowered:
         return 365
     return 30
+
+
+def _looks_like_dated_price_lookup(query: str, lowered_query: str) -> bool:
+    has_date = bool(_SINGLE_DATE_RE.search(query or "") or _MONTH_DAY_RE.search(query or ""))
+    if not has_date:
+        return False
+    return any(pattern in lowered_query for pattern in _PRICE_FIELD_PATTERNS)
+
+
+def _query_requests_volume_ratio(query: str) -> bool:
+    return "量比" in (query or "").lower()
 
 
 def _leaderboard_fallback_type(query: str) -> str:

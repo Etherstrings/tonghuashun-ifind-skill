@@ -48,6 +48,21 @@ def test_history_route_parses_relative_one_month_window():
     assert plan.payload["enddate"] == "2026-04-16"
 
 
+def test_single_day_price_query_routes_to_history_with_same_day_window():
+    plan = build_route_plan(
+        "600004 4月21号 开盘价 收盘价 量比",
+        entity_lookup=lambda _: None,
+        today=date(2026, 4, 21),
+    )
+
+    assert plan.intent == "quote_history"
+    assert plan.endpoint == "/cmd_history_quotation"
+    assert plan.payload["codes"] == "600004.SH"
+    assert plan.payload["startdate"] == "2026-04-21"
+    assert plan.payload["enddate"] == "2026-04-21"
+    assert plan.payload["include_volume_ratio"] is True
+
+
 def test_market_snapshot_defaults_to_major_indices_for_market_query():
     plan = build_route_plan(
         "看一下大盘",

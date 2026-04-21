@@ -210,3 +210,23 @@ def test_api_call_sanitizes_request_exception_message(
 
     assert result["ok"] is False
     assert "access-demo" not in result["error"]["message"]
+
+
+def test_call_named_endpoint_uses_catalog(fake_session: FakeSession) -> None:
+    client = IFindClient(
+        base_url="https://quantapi.51ifind.com/api/v1",
+        session=fake_session,
+    )
+
+    result = client.call_named_endpoint(
+        name="history_quote",
+        payload={"codes": "600004.SH"},
+        access_token="access-demo",
+        token_source="cache",
+    )
+
+    assert result["ok"] is True
+    assert result["endpoint"] == "/cmd_history_quotation"
+    assert fake_session.requests[-1]["url"] == (
+        "https://quantapi.51ifind.com/api/v1/cmd_history_quotation"
+    )

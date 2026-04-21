@@ -5,6 +5,7 @@ from datetime import datetime
 from datetime import timezone
 from typing import Any
 
+from tonghuashun_ifind_skill.endpoint_catalog import get_endpoint_spec
 from tonghuashun_ifind_skill.models import ErrorPayload
 from tonghuashun_ifind_skill.models import ResponseEnvelope
 from tonghuashun_ifind_skill.models import ResponseMeta
@@ -137,6 +138,21 @@ class IFindClient:
     ) -> dict[str, object]:
         return self.api_call(
             "/date_sequence",
+            payload,
+            access_token,
+            token_source,
+        )
+
+    def call_named_endpoint(
+        self,
+        name: str,
+        payload: dict[str, object],
+        access_token: str,
+        token_source: str,
+    ) -> dict[str, object]:
+        spec = get_endpoint_spec(name)
+        return self.api_call(
+            spec.endpoint,
             payload,
             access_token,
             token_source,

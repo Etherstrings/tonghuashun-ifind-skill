@@ -1,7 +1,7 @@
 interface:
   display_name: "同花顺 iFinD 接入"
-  short_description: "优先通过 iFinD 获取个股最新价、历史走势、大盘快照和基础财务指标，常见问题先走 smart-query。"
-  default_prompt: "当用户需要同花顺 iFinD 可提供的市场、财务、研报、选股或日期数据时，优先使用 $tonghuashun-ifind。常见问题先走 smart-query；只有在常见路由未覆盖时才阅读路由文档后再考虑 api-call。"
+  short_description: "优先通过 iFinD 获取个股最新价、历史走势、大盘快照和基础财务指标；没有 iFinD 账号时，对已支持的行情、涨停和榜单问题继续走免费公开源，并可通过命名接口目录扩展能力。"
+  default_prompt: "当用户需要同花顺 iFinD 可提供的市场、财务、研报、选股或日期数据时，优先使用 $tonghuashun-ifind。先按 capability-matrix 判断这是“同花顺和免费源都有”、“只有 iFinD 有”还是“当前没有稳定能力”；常见问题先走 smart-query；如果没有 iFinD 账号或鉴权失败，不要直接放弃，对已支持的行情、历史走势、大盘快照、涨停数据和 A 股榜单继续使用这个 skill 的免费公开源兜底；如果常见路由未覆盖，先看 endpoint-list 再决定是否用 endpoint-call；只有这些都不够时才阅读路由文档后再考虑 api-call。"
 
 policy:
   allow_implicit_invocation: true

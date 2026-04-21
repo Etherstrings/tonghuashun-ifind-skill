@@ -61,8 +61,11 @@ def run_command(argv: list[str]) -> dict[str, object]:
             return _handle_auth_set_tokens(args, state_path)
         if args.command == "auth-login":
             return _handle_auth_login(args, state_path)
+        if args.command == "endpoint-list":
+            return _handle_endpoint_list()
         if args.command in {
             "api-call",
+            "endpoint-call",
             "basic-data",
             "smart-pick",
             "report-query",
@@ -137,6 +140,11 @@ def _build_parser() -> argparse.ArgumentParser:
 
     api_call = subparsers.add_parser("api-call", parents=[api_common])
     api_call.add_argument("--endpoint", required=True)
+
+    subparsers.add_parser("endpoint-list")
+
+    endpoint_call = subparsers.add_parser("endpoint-call", parents=[api_common])
+    endpoint_call.add_argument("--name", required=True)
 
     subparsers.add_parser("basic-data", parents=[api_common])
     subparsers.add_parser("smart-pick", parents=[api_common])
@@ -219,8 +227,21 @@ def _handle_api_command(
 ) -> dict[str, object]:
     from tonghuashun_ifind_skill.client import IFindClient
     from tonghuashun_ifind_skill.client import build_envelope
+    from tonghuashun_ifind_skill.endpoint_catalog import get_endpoint_spec
 
     payload = _parse_payload(args.payload)
+    if args.command == "endpoint-call":
+        try:
+            spec = get_endpoint_spec(args.name)
+        except ValueError as exc:
+            return build_envelope(
+                ok=False,
+                endpoint="/endpoint_catalog",
+                token_source="cli",
+                error_type="invalid_request",
+                error_message=str(exc),
+            )
+
     auth = _build_auth_manager(
         state_path=state_path,
         username=args.username,
@@ -242,6 +263,13 @@ def _handle_api_command(
             bundle.access_token,
             token_source,
         )
+    if args.command == "endpoint-call":
+        return client.call_named_endpoint(
+            spec.name,
+            payload,
+            bundle.access_token,
+            token_source,
+        )
     if args.command == "basic-data":
         return client.basic_data(payload, bundle.access_token, token_source)
     if args.command == "smart-pick":
@@ -257,6 +285,20 @@ def _handle_api_command(
         token_source="cli",
         error_type="invalid_request",
         error_message="unknown api command",
+    )
+
+
+def _handle_endpoint_list() -> dict[str, object]:
+    from tonghuashun_ifind_skill.client import build_envelope
+    from tonghuashun_ifind_skill.endpoint_catalog import list_endpoint_specs
+
+    return build_envelope(
+        ok=True,
+        endpoint="/endpoint_catalog",
+        token_source="cli",
+        data={
+            "endpoints": [spec.to_dict() for spec in list_endpoint_specs()],
+        },
     )
 
 
@@ -650,6 +692,10 @@ def _command_endpoint(args: argparse.Namespace) -> str:
     if args.command == "api-call":
         endpoint = getattr(args, "endpoint", "")
         return endpoint if endpoint else "/"
+    if args.command == "endpoint-list":
+        return "/endpoint_catalog"
+    if args.command == "endpoint-call":
+        return "/endpoint_catalog"
     if args.command == "basic-data":
         return "/basic_data_service"
     if args.command == "smart-pick":

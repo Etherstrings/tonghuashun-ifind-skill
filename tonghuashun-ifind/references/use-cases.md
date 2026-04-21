@@ -5,6 +5,7 @@
 原则：
 
 - 先找和用户问题最接近的案例
+- 先用 [能力矩阵](capability-matrix.md) 判断当前问题属于哪一类能力
 - 能用 `smart-query` 时不要先手写 `api-call`
 - 如果案例和当前请求明显不匹配，就回到 `routing.md`
 

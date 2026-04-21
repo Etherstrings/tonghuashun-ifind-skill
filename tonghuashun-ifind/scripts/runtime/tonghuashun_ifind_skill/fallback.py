@@ -15,6 +15,7 @@ TENCENT_SEARCH_URL = "https://smartbox.gtimg.cn/s3/"
 TENCENT_HISTORY_URL = "https://web.ifzq.gtimg.cn/appstock/app/fqkline/get"
 EASTMONEY_LIMIT_UP_URL = "https://push2ex.eastmoney.com/getTopicZTPool"
 EASTMONEY_LEADERBOARD_URL = "https://push2.eastmoney.com/api/qt/clist/get"
+EASTMONEY_QUOTE_URL = "https://push2.eastmoney.com/api/qt/stock/get"
 EASTMONEY_LIMIT_UP_UT = "7eea3edcaed734bea9cbfc24409ed989"
 EASTMONEY_A_STOCK_FS = "m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23"
 
@@ -164,6 +165,57 @@ class TencentStockFallbackClient:
             "candles": candles,
         }
 
+    def fetch_quote_snapshot(
+        self,
+        *,
+        symbol: str,
+    ) -> dict[str, object]:
+        params = {
+            "secid": _to_eastmoney_secid(symbol),
+            "fields": "f43,f44,f45,f46,f47,f48,f50,f57,f58,f60,f170",
+        }
+        try:
+            response = self.session.get(
+                EASTMONEY_QUOTE_URL,
+                params=params,
+                timeout=self.timeout,
+            )
+        except Exception:
+            response = _get_without_env(
+                EASTMONEY_QUOTE_URL,
+                params=params,
+                timeout=self.timeout,
+            )
+        response.raise_for_status()
+        payload = response.json()
+        if not isinstance(payload, dict):
+            raise ValueError("eastmoney quote response must be a JSON object")
+        if payload.get("rc") not in (0, "0", None):
+            raise ValueError("eastmoney quote response returned error")
+
+        data = payload.get("data")
+        if not isinstance(data, dict):
+            raise ValueError("eastmoney quote response missing data")
+
+        return {
+            "provider": {
+                "name": "eastmoney",
+                "type": "public_http",
+                "channel": "stock_get",
+            },
+            "symbol": normalize_symbol(str(data.get("f57", "")).strip()),
+            "name": str(data.get("f58", "")).strip() or None,
+            "latest": _to_scaled_price(data.get("f43")),
+            "high": _to_scaled_price(data.get("f44")),
+            "low": _to_scaled_price(data.get("f45")),
+            "open": _to_scaled_price(data.get("f46")),
+            "volume": _to_float(data.get("f47")),
+            "amount": _to_float(data.get("f48")),
+            "volume_ratio": _to_scaled_ratio(data.get("f50")),
+            "previous_close": _to_scaled_price(data.get("f60")),
+            "change_ratio": _to_scaled_ratio(data.get("f170")),
+        }
+
     def fetch_limit_up_pool(
         self,
         *,
@@ -289,11 +341,21 @@ class TencentStockFallbackClient:
             end_date = str(plan.payload.get("enddate", ""))
             if not start_date or not end_date:
                 raise ValueError("history fallback requires startdate and enddate")
-            return self.fetch_history(
+            history = self.fetch_history(
                 symbol=plan.entity.symbol,
                 start_date=start_date,
                 end_date=end_date,
             )
+            if plan.payload.get("include_volume_ratio"):
+                try:
+                    snapshot = self.fetch_quote_snapshot(symbol=plan.entity.symbol)
+                except Exception:
+                    snapshot = None
+                if snapshot is not None:
+                    history["snapshot"] = snapshot
+                    if snapshot.get("name") and not history.get("name"):
+                        history["name"] = snapshot["name"]
+            return history
         if plan.intent == "limit_up_screen":
             return self.fetch_limit_up_pool(trade_date=date.today())
         if plan.intent == "leaderboard_screen":
@@ -408,6 +470,20 @@ def _coerce_int(value: object) -> int | None:
         return None
 
 
+def _to_scaled_price(value: object) -> float | None:
+    raw = _to_float(value)
+    if raw is None:
+        return None
+    return raw / 100
+
+
+def _to_scaled_ratio(value: object) -> float | None:
+    raw = _to_float(value)
+    if raw is None:
+        return None
+    return raw / 100
+
+
 def _parse_eastmoney_limit_up_row(row: dict[str, object]) -> dict[str, object]:
     market_code = row.get("m")
     code = str(row.get("c", "")).strip()
@@ -474,6 +550,18 @@ def _eastmoney_symbol(code: str, market_code: object) -> str | None:
     return f"{code}.{market}"
 
 
+def _to_eastmoney_secid(symbol: str) -> str:
+    normalized = normalize_symbol(symbol)
+    if "." not in normalized:
+        raise ValueError("eastmoney quote requires market-qualified symbol")
+    code, market = normalized.split(".", 1)
+    if market == "SH":
+        return f"1.{code}"
+    if market in {"SZ", "BJ"}:
+        return f"0.{code}"
+    raise ValueError(f"unsupported market for eastmoney quote: {market}")
+
+
 def _format_hhmmss(value: object) -> str | None:
     number = _coerce_int(value)
     if number is None:
@@ -489,3 +577,13 @@ def _decode_escaped_text(value: str) -> str:
         return json.loads(f'"{value}"')
     except json.JSONDecodeError:
         return value
+
+
+def _get_without_env(url: str, *, params: dict[str, object], timeout: float):
+    try:
+        import requests
+    except ModuleNotFoundError as exc:  # pragma: no cover
+        raise RuntimeError("requests is required for direct fallback requests") from exc
+    session = requests.Session()
+    session.trust_env = False
+    return session.get(url, params=params, timeout=timeout)
