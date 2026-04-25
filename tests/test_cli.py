@@ -4,17 +4,18 @@ import importlib.util
 import subprocess
 import sys
 
-SCRIPT_DIR = Path("tonghuashun-ifind/scripts").resolve()
+SCRIPT_DIR = Path("tonghuashun-ifind-skill/scripts").resolve()
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
 from ifind_cli import main
 from ifind_cli import _build_auth_manager
 from ifind_cli import run_command
+from tonghuashun_ifind_skill.models import TokenBundle
 
 
 def test_ifind_cli_module_exists():
-    cli_path = Path("tonghuashun-ifind/scripts/ifind_cli.py")
+    cli_path = Path("tonghuashun-ifind-skill/scripts/ifind_cli.py")
     assert cli_path.exists()
     spec = importlib.util.spec_from_file_location("ifind_cli", cli_path)
     assert spec is not None and spec.loader is not None
@@ -41,41 +42,42 @@ def test_cli_basic_data_command_routes_to_client(monkeypatch, capsys):
     assert '"ok": true' in captured.out.lower()
 
 
-def test_auth_login_accepts_browser_executable(monkeypatch, tmp_path):
+def test_auth_set_refresh_token_exchanges_and_stores_token(monkeypatch, tmp_path):
     captured: dict[str, object] = {}
 
-    class FakeAuthManager:
-        def login_with_browser(self):
-            return (
-                SimpleNamespace(expires_at="2026-04-06T00:30:00Z"),
-                "playwright",
-            )
+    def fake_exchange_refresh_token(refresh_token: str, *, base_url: str, **kwargs):
+        captured["refresh_token"] = refresh_token
+        captured["base_url"] = base_url
+        return TokenBundle(
+            access_token="access-new",
+            refresh_token=refresh_token,
+            expires_at="2099-01-01T00:00:00Z",
+        )
 
-    def fake_build_auth_manager(**kwargs):
-        captured.update(kwargs)
-        return FakeAuthManager()
+    monkeypatch.setattr(
+        "tonghuashun_ifind_skill.auth.exchange_refresh_token",
+        fake_exchange_refresh_token,
+    )
 
-    monkeypatch.setattr("ifind_cli._build_auth_manager", fake_build_auth_manager)
-
+    state_path = tmp_path / "token_state.json"
     result = run_command(
         [
             "--state-path",
-            str(tmp_path / "token_state.json"),
-            "auth-login",
-            "--username",
-            "alice",
-            "--password",
-            "secret",
-            "--browser-executable",
-            "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+            str(state_path),
+            "auth-set-refresh-token",
+            "--refresh-token",
+            "refresh-demo",
+            "--base-url",
+            "https://example.com/api/v1",
         ]
     )
 
     assert result["ok"] is True
-    assert (
-        captured["browser_executable"]
-        == "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
-    )
+    assert result["endpoint"] == "/auth/set-refresh-token"
+    assert result["token_source"] == "refresh"
+    assert captured["refresh_token"] == "refresh-demo"
+    assert captured["base_url"] == "https://example.com/api/v1"
+    assert "access-new" in state_path.read_text(encoding="utf-8")
 
 
 def test_build_auth_manager_uses_base_url_for_refresh(monkeypatch, tmp_path):
@@ -97,13 +99,6 @@ def test_build_auth_manager_uses_base_url_for_refresh(monkeypatch, tmp_path):
 
     manager = _build_auth_manager(
         state_path=tmp_path / "token_state.json",
-        username=None,
-        password=None,
-        login_url="https://example.com/login",
-        username_selector='input[name="username"]',
-        password_selector='input[name="password"]',
-        submit_selector='button[type="submit"]',
-        browser_executable="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
         base_url="https://example.com/api/v1",
     )
 
@@ -159,6 +154,8 @@ def test_endpoint_list_returns_catalog() -> None:
     endpoints = result["data"]["endpoints"]
     assert any(item["name"] == "basic_data" for item in endpoints)
     assert any(item["name"] == "history_quote" for item in endpoints)
+    real_time_quote = next(item for item in endpoints if item["name"] == "real_time_quote")
+    assert "indicators" in real_time_quote["example_payload"]
 
 
 def test_endpoint_call_routes_named_endpoint(monkeypatch, tmp_path):
@@ -230,7 +227,7 @@ def test_endpoint_call_rejects_unknown_name(tmp_path):
     assert "unknown endpoint name" in result["error"]["message"]
 
 
-def test_quote_realtime_falls_back_to_tencent_when_ifind_auth_fails(
+def test_quote_realtime_requires_ifind_auth_when_auth_fails(
     monkeypatch,
     tmp_path,
 ):
@@ -238,23 +235,7 @@ def test_quote_realtime_falls_back_to_tencent_when_ifind_auth_fails(
         def resolve_tokens(self):
             raise RuntimeError("ifind unavailable")
 
-    class FakeTencentFallbackClient:
-        def __init__(self, **kwargs):
-            return None
-
-        def execute_plan(self, plan):
-            return {
-                "provider": {"name": "tencent_finance"},
-                "quotes": [{"symbol": "600519.SH", "latest": 1462.84}],
-                "fallback_reason": "ifind unavailable",
-                "fallback_for": plan.intent,
-            }
-
     monkeypatch.setattr("ifind_cli._build_auth_manager", lambda **kwargs: FakeAuthManager())
-    monkeypatch.setattr(
-        "tonghuashun_ifind_skill.fallback.TencentStockFallbackClient",
-        FakeTencentFallbackClient,
-    )
 
     result = run_command(
         [
@@ -266,13 +247,17 @@ def test_quote_realtime_falls_back_to_tencent_when_ifind_auth_fails(
         ]
     )
 
-    assert result["ok"] is True
-    assert result["token_source"] == "fallback:tencent"
-    assert result["data"]["provider"]["name"] == "tencent_finance"
-    assert result["data"]["entity"]["symbol"] == "600519.SH"
+    assert result["ok"] is False
+    assert result["token_source"] == "cli"
+    assert result["error"]["type"] == "auth_required"
+    assert "iFinD authentication is required" in result["error"]["message"]
+    assert "AccountDetails" in result["error"]["message"]
+    assert "refresh_token" in result["error"]["message"]
+    assert "auth-set-refresh-token" in result["error"]["message"]
+    assert "username or password" in result["error"]["message"]
 
 
-def test_quote_history_falls_back_to_tencent_when_ifind_auth_fails(
+def test_quote_history_requires_ifind_auth_when_auth_fails(
     monkeypatch,
     tmp_path,
 ):
@@ -280,33 +265,7 @@ def test_quote_history_falls_back_to_tencent_when_ifind_auth_fails(
         def resolve_tokens(self):
             raise RuntimeError("ifind unavailable")
 
-    class FakeTencentFallbackClient:
-        def __init__(self, **kwargs):
-            return None
-
-        def execute_plan(self, plan):
-            assert plan.intent == "quote_history"
-            assert plan.entity is not None
-            assert plan.entity.symbol == "600004.SH"
-            assert plan.payload["startdate"] == "2026-04-21"
-            assert plan.payload["enddate"] == "2026-04-21"
-            return {
-                "provider": {"name": "tencent_finance"},
-                "symbol": "600004.SH",
-                "candles": [
-                    {
-                        "date": "2026-04-21",
-                        "open": 8.88,
-                        "close": 8.89,
-                    }
-                ],
-            }
-
     monkeypatch.setattr("ifind_cli._build_auth_manager", lambda **kwargs: FakeAuthManager())
-    monkeypatch.setattr(
-        "tonghuashun_ifind_skill.fallback.TencentStockFallbackClient",
-        FakeTencentFallbackClient,
-    )
 
     result = run_command(
         [
@@ -322,15 +281,11 @@ def test_quote_history_falls_back_to_tencent_when_ifind_auth_fails(
         ]
     )
 
-    assert result["ok"] is True
-    assert result["token_source"] == "fallback:tencent"
-    assert result["data"]["provider"]["name"] == "tencent_finance"
-    assert result["data"]["entity"]["symbol"] == "600004.SH"
-    assert result["data"]["response"]["candles"][0]["open"] == 8.88
-    assert result["data"]["response"]["candles"][0]["close"] == 8.89
+    assert result["ok"] is False
+    assert result["error"]["type"] == "auth_required"
 
 
-def test_smart_query_uses_tencent_search_when_ifind_lookup_unavailable(
+def test_smart_query_requires_ifind_auth_before_entity_lookup(
     monkeypatch,
     tmp_path,
 ):
@@ -338,34 +293,100 @@ def test_smart_query_uses_tencent_search_when_ifind_lookup_unavailable(
         def resolve_tokens(self):
             raise RuntimeError("ifind unavailable")
 
-    class FakeTencentFallbackClient:
-        def __init__(self, **kwargs):
-            return None
+    monkeypatch.setattr("ifind_cli._build_auth_manager", lambda **kwargs: FakeAuthManager())
 
-        def search_entity(self, text):
-            from tonghuashun_ifind_skill.routing import ResolvedEntity
+    result = run_command(
+        [
+            "--state-path",
+            str(tmp_path / "token_state.json"),
+            "smart-query",
+            "--query",
+            "看看贵州茅台现在股价",
+        ]
+    )
 
-            assert text == "贵州茅台"
-            return ResolvedEntity(
-                raw="贵州茅台",
-                symbol="600519.SH",
-                name="贵州茅台",
-                entity_type="stock",
+    assert result["ok"] is False
+    assert result["error"]["type"] == "auth_required"
+
+
+def test_smart_query_with_numeric_stock_code_still_requires_ifind_auth(
+    monkeypatch,
+    tmp_path,
+):
+    class FakeAuthManager:
+        def resolve_tokens(self):
+            raise RuntimeError("ifind unavailable")
+
+    monkeypatch.setattr("ifind_cli._build_auth_manager", lambda **kwargs: FakeAuthManager())
+
+    result = run_command(
+        [
+            "--state-path",
+            str(tmp_path / "token_state.json"),
+            "smart-query",
+            "--query",
+            "600004 2026-04-21 开盘价 收盘价",
+        ]
+    )
+
+    assert result["ok"] is False
+    assert result["error"]["type"] == "auth_required"
+
+
+def test_smart_query_uses_ifind_entity_lookup_without_public_source(
+    monkeypatch,
+    tmp_path,
+):
+    class FakeAuthManager:
+        def resolve_tokens(self):
+            return (
+                SimpleNamespace(
+                    access_token="access-demo",
+                    refresh_token="refresh-demo",
+                    expires_at="2099-01-01T00:00:00Z",
+                ),
+                "cache",
             )
 
-        def execute_plan(self, plan):
+    class FakeClient:
+        def __init__(self, *, base_url, session=None, timeout=30.0, now=None):
+            self.base_url = base_url
+            self.calls: list[dict[str, object]] = []
+
+        def smart_stock_picking(self, payload, access_token, token_source):
+            self.calls.append({"method": "smart_stock_picking", "payload": payload})
             return {
-                "provider": {"name": "tencent_finance"},
-                "quotes": [{"symbol": "600519.SH", "latest": 1462.84}],
-                "fallback_reason": "ifind unavailable",
-                "fallback_for": plan.intent,
+                "ok": True,
+                "endpoint": "/smart_stock_picking",
+                "token_source": token_source,
+                "data": {
+                    "tables": [
+                        {
+                            "table": {
+                                "股票代码": ["600519.SH"],
+                                "股票简称": ["贵州茅台"],
+                            }
+                        }
+                    ]
+                },
+                "error": None,
+                "meta": {},
+            }
+
+        def api_call(self, endpoint, payload, access_token, token_source):
+            assert endpoint == "/real_time_quotation"
+            assert payload["codes"] == "600519.SH"
+            return {
+                "ok": True,
+                "endpoint": endpoint,
+                "token_source": token_source,
+                "data": {"tables": [{"table": {"latest": [1462.84]}}]},
+                "error": None,
+                "meta": {},
             }
 
     monkeypatch.setattr("ifind_cli._build_auth_manager", lambda **kwargs: FakeAuthManager())
-    monkeypatch.setattr(
-        "tonghuashun_ifind_skill.fallback.TencentStockFallbackClient",
-        FakeTencentFallbackClient,
-    )
+    monkeypatch.setattr("tonghuashun_ifind_skill.client.IFindClient", FakeClient)
 
     result = run_command(
         [
@@ -378,47 +399,71 @@ def test_smart_query_uses_tencent_search_when_ifind_lookup_unavailable(
     )
 
     assert result["ok"] is True
-    assert result["token_source"] == "fallback:tencent"
+    assert result["token_source"] == "cache"
     assert result["data"]["entity"]["symbol"] == "600519.SH"
+    assert result["data"]["response"] == {"tables": [{"table": {"latest": [1462.84]}}]}
 
 
-def test_smart_query_with_numeric_stock_code_uses_public_fallback_without_ifind_lookup(
+def test_smart_query_resolves_chinese_stock_name_to_code_via_ifind_lookup(
     monkeypatch,
     tmp_path,
 ):
+    calls: list[dict[str, object]] = []
+
     class FakeAuthManager:
         def resolve_tokens(self):
-            raise RuntimeError("ifind unavailable")
+            return (
+                SimpleNamespace(
+                    access_token="access-demo",
+                    refresh_token="refresh-demo",
+                    expires_at="2099-01-01T00:00:00Z",
+                ),
+                "cache",
+            )
 
-    class FakeTencentFallbackClient:
-        def __init__(self, **kwargs):
-            return None
+    class FakeClient:
+        def __init__(self, *, base_url, session=None, timeout=30.0, now=None):
+            self.base_url = base_url
 
-        def search_entity(self, text):
-            raise AssertionError(f"numeric stock code should not trigger entity lookup: {text}")
-
-        def execute_plan(self, plan):
-            assert plan.intent == "quote_history"
-            assert plan.entity is not None
-            assert plan.entity.symbol == "600004.SH"
+        def smart_stock_picking(self, payload, access_token, token_source):
+            calls.append({"method": "smart_stock_picking", "payload": payload})
+            assert payload == {
+                "searchstring": "贵州茅台 股票代码 股票简称",
+                "searchtype": "stock",
+            }
             return {
-                "provider": {"name": "tencent_finance"},
-                "symbol": "600004.SH",
-                "snapshot": {"provider": {"name": "eastmoney"}, "volume_ratio": 1.3},
-                "candles": [
-                    {
-                        "date": "2026-04-21",
-                        "open": 8.88,
-                        "close": 8.89,
-                    }
-                ],
+                "ok": True,
+                "endpoint": "/smart_stock_picking",
+                "token_source": token_source,
+                "data": {
+                    "tables": [
+                        {
+                            "table": {
+                                "股票代码": ["600519.SH"],
+                                "股票简称": ["贵州茅台"],
+                            }
+                        }
+                    ]
+                },
+                "error": None,
+                "meta": {},
+            }
+
+        def api_call(self, endpoint, payload, access_token, token_source):
+            calls.append({"method": "api_call", "endpoint": endpoint, "payload": payload})
+            assert endpoint == "/real_time_quotation"
+            assert payload["codes"] == "600519.SH"
+            return {
+                "ok": True,
+                "endpoint": endpoint,
+                "token_source": token_source,
+                "data": {"tables": [{"table": {"latest": [1462.84]}}]},
+                "error": None,
+                "meta": {},
             }
 
     monkeypatch.setattr("ifind_cli._build_auth_manager", lambda **kwargs: FakeAuthManager())
-    monkeypatch.setattr(
-        "tonghuashun_ifind_skill.fallback.TencentStockFallbackClient",
-        FakeTencentFallbackClient,
-    )
+    monkeypatch.setattr("tonghuashun_ifind_skill.client.IFindClient", FakeClient)
 
     result = run_command(
         [
@@ -426,16 +471,88 @@ def test_smart_query_with_numeric_stock_code_uses_public_fallback_without_ifind_
             str(tmp_path / "token_state.json"),
             "smart-query",
             "--query",
-            "600004 2026-04-21 开盘价 收盘价",
+            "请问贵州茅台最近股价怎么样",
         ]
     )
 
     assert result["ok"] is True
-    assert result["token_source"] == "fallback:tencent"
-    assert result["data"]["intent"] == "quote_history"
-    assert result["data"]["entity"]["symbol"] == "600004.SH"
-    assert result["data"]["response"]["candles"][0]["close"] == 8.89
-    assert result["data"]["response"]["snapshot"]["volume_ratio"] == 1.3
+    assert result["data"]["entity"]["symbol"] == "600519.SH"
+    assert result["data"]["request"]["payload"]["codes"] == "600519.SH"
+    assert [call["method"] for call in calls] == ["smart_stock_picking", "api_call"]
+
+
+def test_smart_query_casual_alias_overrides_wrong_ifind_lookup(
+    monkeypatch,
+    tmp_path,
+):
+    calls: list[dict[str, object]] = []
+
+    class FakeAuthManager:
+        def resolve_tokens(self):
+            return (
+                SimpleNamespace(
+                    access_token="access-demo",
+                    refresh_token="refresh-demo",
+                    expires_at="2099-01-01T00:00:00Z",
+                ),
+                "cache",
+            )
+
+    class FakeClient:
+        def __init__(self, *, base_url, session=None, timeout=30.0, now=None):
+            self.base_url = base_url
+
+        def smart_stock_picking(self, payload, access_token, token_source):
+            calls.append({"method": "smart_stock_picking", "payload": payload})
+            return {
+                "ok": True,
+                "endpoint": "/smart_stock_picking",
+                "token_source": token_source,
+                "data": {
+                    "tables": [
+                        {
+                            "table": {
+                                "股票代码": ["000008.SZ"],
+                                "股票简称": ["神州高铁"],
+                            }
+                        }
+                    ]
+                },
+                "error": None,
+                "meta": {},
+            }
+
+        def api_call(self, endpoint, payload, access_token, token_source):
+            calls.append({"method": "api_call", "endpoint": endpoint, "payload": payload})
+            assert endpoint == "/real_time_quotation"
+            assert payload["codes"] == "300750.SZ"
+            return {
+                "ok": True,
+                "endpoint": endpoint,
+                "token_source": token_source,
+                "data": {"tables": [{"table": {"latest": [444.9]}}]},
+                "error": None,
+                "meta": {},
+            }
+
+    monkeypatch.setattr("ifind_cli._build_auth_manager", lambda **kwargs: FakeAuthManager())
+    monkeypatch.setattr("tonghuashun_ifind_skill.client.IFindClient", FakeClient)
+
+    result = run_command(
+        [
+            "--state-path",
+            str(tmp_path / "token_state.json"),
+            "smart-query",
+            "--query",
+            "宁王今天咋样",
+        ]
+    )
+
+    assert result["ok"] is True
+    assert result["data"]["intent"] == "quote_realtime"
+    assert result["data"]["entity"]["symbol"] == "300750.SZ"
+    assert result["data"]["entity"]["name"] == "宁德时代"
+    assert [call["method"] for call in calls] == ["smart_stock_picking", "api_call"]
 
 
 def test_smart_query_limit_up_uses_smart_stock_picking_route(monkeypatch, tmp_path):
@@ -471,19 +588,8 @@ def test_smart_query_limit_up_uses_smart_stock_picking_route(monkeypatch, tmp_pa
                 "meta": {},
             }
 
-    class FakeTencentFallbackClient:
-        def __init__(self, **kwargs):
-            return None
-
-        def search_entity(self, text):
-            raise AssertionError(f"entity lookup should not run for limit-up queries: {text}")
-
     monkeypatch.setattr("ifind_cli._build_auth_manager", lambda **kwargs: FakeAuthManager())
     monkeypatch.setattr("tonghuashun_ifind_skill.client.IFindClient", FakeClient)
-    monkeypatch.setattr(
-        "tonghuashun_ifind_skill.fallback.TencentStockFallbackClient",
-        FakeTencentFallbackClient,
-    )
 
     result = run_command(
         [
@@ -505,7 +611,7 @@ def test_smart_query_limit_up_uses_smart_stock_picking_route(monkeypatch, tmp_pa
     }
 
 
-def test_limit_up_query_falls_back_to_public_source_when_ifind_auth_fails(
+def test_limit_up_query_requires_ifind_auth_when_auth_fails(
     monkeypatch,
     tmp_path,
 ):
@@ -513,23 +619,7 @@ def test_limit_up_query_falls_back_to_public_source_when_ifind_auth_fails(
         def resolve_tokens(self):
             raise RuntimeError("ifind unavailable")
 
-    class FakeTencentFallbackClient:
-        def __init__(self, **kwargs):
-            return None
-
-        def execute_plan(self, plan):
-            assert plan.intent == "limit_up_screen"
-            return {
-                "provider": {"name": "eastmoney", "type": "public_http"},
-                "trade_date": "2026-04-20",
-                "limit_up_stocks": [{"symbol": "002843.SZ", "name": "泰嘉股份"}],
-            }
-
     monkeypatch.setattr("ifind_cli._build_auth_manager", lambda **kwargs: FakeAuthManager())
-    monkeypatch.setattr(
-        "tonghuashun_ifind_skill.fallback.TencentStockFallbackClient",
-        FakeTencentFallbackClient,
-    )
 
     result = run_command(
         [
@@ -541,13 +631,11 @@ def test_limit_up_query_falls_back_to_public_source_when_ifind_auth_fails(
         ]
     )
 
-    assert result["ok"] is True
-    assert result["token_source"] == "fallback:eastmoney"
-    assert result["data"]["intent"] == "limit_up_screen"
-    assert result["data"]["provider"]["name"] == "eastmoney"
+    assert result["ok"] is False
+    assert result["error"]["type"] == "auth_required"
 
 
-def test_limit_up_query_falls_back_to_public_source_when_ifind_api_fails(
+def test_limit_up_query_returns_ifind_api_error_without_alternate_source(
     monkeypatch,
     tmp_path,
 ):
@@ -576,24 +664,8 @@ def test_limit_up_query_falls_back_to_public_source_when_ifind_api_fails(
                 "meta": {},
             }
 
-    class FakeTencentFallbackClient:
-        def __init__(self, **kwargs):
-            return None
-
-        def execute_plan(self, plan):
-            assert plan.intent == "limit_up_screen"
-            return {
-                "provider": {"name": "eastmoney", "type": "public_http"},
-                "trade_date": "2026-04-20",
-                "limit_up_stocks": [{"symbol": "002843.SZ", "name": "泰嘉股份"}],
-            }
-
     monkeypatch.setattr("ifind_cli._build_auth_manager", lambda **kwargs: FakeAuthManager())
     monkeypatch.setattr("tonghuashun_ifind_skill.client.IFindClient", FakeClient)
-    monkeypatch.setattr(
-        "tonghuashun_ifind_skill.fallback.TencentStockFallbackClient",
-        FakeTencentFallbackClient,
-    )
 
     result = run_command(
         [
@@ -605,38 +677,48 @@ def test_limit_up_query_falls_back_to_public_source_when_ifind_api_fails(
         ]
     )
 
-    assert result["ok"] is True
-    assert result["token_source"] == "fallback:eastmoney"
-    assert result["data"]["provider"]["name"] == "eastmoney"
+    assert result["ok"] is False
+    assert result["token_source"] == "cache"
+    assert result["data"]["intent"] == "limit_up_screen"
+    assert "provider" not in result["data"]
 
 
-def test_leaderboard_query_falls_back_to_public_source_when_ifind_auth_fails(
+def test_leaderboard_query_sends_raw_ifind_searchstring_without_public_fields(
     monkeypatch,
     tmp_path,
 ):
     class FakeAuthManager:
         def resolve_tokens(self):
-            raise RuntimeError("ifind unavailable")
+            return (
+                SimpleNamespace(
+                    access_token="access-demo",
+                    refresh_token="refresh-demo",
+                    expires_at="2099-01-01T00:00:00Z",
+                ),
+                "cache",
+            )
 
-    class FakeTencentFallbackClient:
-        def __init__(self, **kwargs):
-            return None
+    class FakeClient:
+        def __init__(self, *, base_url, session=None, timeout=30.0, now=None):
+            self.base_url = base_url
 
-        def execute_plan(self, plan):
-            assert plan.intent == "leaderboard_screen"
-            assert plan.payload["fallback_type"] == "turnover"
-            assert plan.payload["limit"] == 10
+        def api_call(self, endpoint, payload, access_token, token_source):
+            assert endpoint == "/smart_stock_picking"
+            assert payload == {
+                "searchstring": "A股成交额榜前十",
+                "searchtype": "stock",
+            }
             return {
-                "provider": {"name": "eastmoney", "type": "public_http"},
-                "leaderboard_type": "turnover",
-                "items": [{"symbol": "600519.SH", "name": "贵州茅台"}],
+                "ok": True,
+                "endpoint": endpoint,
+                "token_source": token_source,
+                "data": {"tables": [{"table": {"结果": ["ok"]}}]},
+                "error": None,
+                "meta": {},
             }
 
     monkeypatch.setattr("ifind_cli._build_auth_manager", lambda **kwargs: FakeAuthManager())
-    monkeypatch.setattr(
-        "tonghuashun_ifind_skill.fallback.TencentStockFallbackClient",
-        FakeTencentFallbackClient,
-    )
+    monkeypatch.setattr("tonghuashun_ifind_skill.client.IFindClient", FakeClient)
 
     result = run_command(
         [
@@ -649,37 +731,48 @@ def test_leaderboard_query_falls_back_to_public_source_when_ifind_auth_fails(
     )
 
     assert result["ok"] is True
-    assert result["token_source"] == "fallback:eastmoney"
     assert result["data"]["intent"] == "leaderboard_screen"
-    assert result["data"]["provider"]["name"] == "eastmoney"
+    assert result["data"]["request"]["payload"] == {
+        "searchstring": "A股成交额榜前十",
+        "searchtype": "stock",
+    }
 
 
-def test_volume_ratio_leaderboard_falls_back_to_eastmoney_when_ifind_auth_fails(
+def test_volume_ratio_leaderboard_keeps_limit_in_ifind_searchstring_only(
     monkeypatch,
     tmp_path,
 ):
     class FakeAuthManager:
         def resolve_tokens(self):
-            raise RuntimeError("ifind unavailable")
+            return (
+                SimpleNamespace(
+                    access_token="access-demo",
+                    refresh_token="refresh-demo",
+                    expires_at="2099-01-01T00:00:00Z",
+                ),
+                "cache",
+            )
 
-    class FakeTencentFallbackClient:
-        def __init__(self, **kwargs):
-            return None
+    class FakeClient:
+        def __init__(self, *, base_url, session=None, timeout=30.0, now=None):
+            self.base_url = base_url
 
-        def execute_plan(self, plan):
-            assert plan.intent == "leaderboard_screen"
-            assert plan.payload["fallback_type"] == "volume_ratio"
+        def api_call(self, endpoint, payload, access_token, token_source):
+            assert payload == {
+                "searchstring": "量比榜前十",
+                "searchtype": "stock",
+            }
             return {
-                "provider": {"name": "eastmoney", "type": "public_http"},
-                "leaderboard_type": "volume_ratio",
-                "items": [{"symbol": "603788.SH", "name": "宁波高发", "volume_ratio": 9.6}],
+                "ok": True,
+                "endpoint": endpoint,
+                "token_source": token_source,
+                "data": {"tables": [{"table": {"结果": ["ok"]}}]},
+                "error": None,
+                "meta": {},
             }
 
     monkeypatch.setattr("ifind_cli._build_auth_manager", lambda **kwargs: FakeAuthManager())
-    monkeypatch.setattr(
-        "tonghuashun_ifind_skill.fallback.TencentStockFallbackClient",
-        FakeTencentFallbackClient,
-    )
+    monkeypatch.setattr("tonghuashun_ifind_skill.client.IFindClient", FakeClient)
 
     result = run_command(
         [
@@ -692,15 +785,274 @@ def test_volume_ratio_leaderboard_falls_back_to_eastmoney_when_ifind_auth_fails(
     )
 
     assert result["ok"] is True
-    assert result["token_source"] == "fallback:eastmoney"
     assert result["data"]["intent"] == "leaderboard_screen"
-    assert result["data"]["provider"]["name"] == "eastmoney"
-    assert result["data"]["request"]["payload"]["fallback_type"] == "volume_ratio"
+    assert result["data"]["request"]["payload"] == {
+        "searchstring": "量比榜前十",
+        "searchtype": "stock",
+    }
+
+
+def test_complex_natural_language_query_falls_through_to_ifind_smart_pick(
+    monkeypatch,
+    tmp_path,
+):
+    class FakeAuthManager:
+        def resolve_tokens(self):
+            return (
+                SimpleNamespace(
+                    access_token="access-demo",
+                    refresh_token="refresh-demo",
+                    expires_at="2099-01-01T00:00:00Z",
+                ),
+                "cache",
+            )
+
+    class FakeClient:
+        def __init__(self, *, base_url, session=None, timeout=30.0, now=None):
+            self.base_url = base_url
+
+        def smart_stock_picking(self, payload, access_token, token_source):
+            return {
+                "ok": False,
+                "endpoint": "/smart_stock_picking",
+                "token_source": token_source,
+                "data": None,
+                "error": {"type": "api_failed", "message": "no entity lookup"},
+                "meta": {},
+            }
+
+        def api_call(self, endpoint, payload, access_token, token_source):
+            assert endpoint == "/smart_stock_picking"
+            assert payload == {
+                "searchstring": "筛一下新能源车产业链里市盈率低于30且近一个月放量的股票",
+                "searchtype": "stock",
+            }
+            return {
+                "ok": True,
+                "endpoint": endpoint,
+                "token_source": token_source,
+                "data": {"tables": [{"table": {"结果": ["ok"]}}]},
+                "error": None,
+                "meta": {},
+            }
+
+    monkeypatch.setattr("ifind_cli._build_auth_manager", lambda **kwargs: FakeAuthManager())
+    monkeypatch.setattr("tonghuashun_ifind_skill.client.IFindClient", FakeClient)
+
+    result = run_command(
+        [
+            "--state-path",
+            str(tmp_path / "token_state.json"),
+            "smart-query",
+            "--query",
+            "筛一下新能源车产业链里市盈率低于30且近一个月放量的股票",
+        ]
+    )
+
+    assert result["ok"] is True
+    assert result["data"]["intent"] == "generic_smart_query"
+    assert result["data"]["request"]["payload"]["searchstring"].startswith("筛一下新能源车")
+
+
+def test_smart_query_blank_or_punctuation_query_stops_before_auth(
+    monkeypatch,
+    tmp_path,
+):
+    class FakeAuthManager:
+        def resolve_tokens(self):
+            raise AssertionError("blank query should not require iFinD auth")
+
+    monkeypatch.setattr("ifind_cli._build_auth_manager", lambda **kwargs: FakeAuthManager())
+
+    result = run_command(
+        [
+            "--state-path",
+            str(tmp_path / "token_state.json"),
+            "smart-query",
+            "--query",
+            "？？？",
+        ]
+    )
+
+    assert result["ok"] is False
+    assert result["endpoint"] == "/manual_lookup"
+    assert result["error"]["type"] == "manual_api_lookup_required"
+    assert "空白或纯标点" in result["error"]["message"]
+
+
+def test_auth_refresh_then_extreme_smart_queries_run_end_to_end(
+    monkeypatch,
+    tmp_path,
+):
+    monkeypatch.delenv("IFIND_ROUTE_LLM_ENABLED", raising=False)
+    calls: list[dict[str, object]] = []
+    entity_symbols = {
+        "贵州茅台": "600519.SH",
+        "药明康德": "603259.SH",
+    }
+
+    def fake_exchange_refresh_token(refresh_token: str, *, base_url: str, **kwargs):
+        calls.append(
+            {
+                "method": "exchange_refresh_token",
+                "refresh_token": refresh_token,
+                "base_url": base_url,
+            }
+        )
+        return TokenBundle(
+            access_token="access-from-refresh",
+            refresh_token=refresh_token,
+            expires_at="2099-01-01T00:00:00Z",
+        )
+
+    class FakeClient:
+        def __init__(self, *, base_url, session=None, timeout=30.0, now=None):
+            self.base_url = base_url
+
+        def smart_stock_picking(self, payload, access_token, token_source):
+            calls.append(
+                {
+                    "method": "smart_stock_picking",
+                    "payload": payload,
+                    "access_token": access_token,
+                    "token_source": token_source,
+                }
+            )
+            searchstring = payload["searchstring"]
+            entity_name = searchstring.removesuffix(" 股票代码 股票简称")
+            symbol = entity_symbols[entity_name]
+            return {
+                "ok": True,
+                "endpoint": "/smart_stock_picking",
+                "token_source": token_source,
+                "data": {
+                    "tables": [
+                        {
+                            "table": {
+                                "股票代码": [symbol],
+                                "股票简称": [entity_name],
+                            }
+                        }
+                    ]
+                },
+                "error": None,
+                "meta": {},
+            }
+
+        def api_call(self, endpoint, payload, access_token, token_source):
+            calls.append(
+                {
+                    "method": "api_call",
+                    "endpoint": endpoint,
+                    "payload": payload,
+                    "access_token": access_token,
+                    "token_source": token_source,
+                }
+            )
+            return {
+                "ok": True,
+                "endpoint": endpoint,
+                "token_source": token_source,
+                "data": {"tables": [{"table": {"结果": ["ok"]}}]},
+                "error": None,
+                "meta": {},
+            }
+
+    monkeypatch.setattr(
+        "tonghuashun_ifind_skill.auth.exchange_refresh_token",
+        fake_exchange_refresh_token,
+    )
+    monkeypatch.setattr("tonghuashun_ifind_skill.client.IFindClient", FakeClient)
+
+    state_path = tmp_path / "token_state.json"
+    auth_result = run_command(
+        [
+            "--state-path",
+            str(state_path),
+            "auth-set-refresh-token",
+            "--refresh-token",
+            "refresh-demo",
+            "--base-url",
+            "https://example.com/api/v1",
+        ]
+    )
+    assert auth_result["ok"] is True
+
+    realtime_result = run_command(
+        [
+            "--state-path",
+            str(state_path),
+            "smart-query",
+            "--query",
+            "请问：贵州茅台，最新价是多少？",
+        ]
+    )
+    index_result = run_command(
+        [
+            "--state-path",
+            str(state_path),
+            "smart-query",
+            "--query",
+            "000300sh行情",
+        ]
+    )
+    holding_result = run_command(
+        [
+            "--state-path",
+            str(state_path),
+            "smart-query",
+            "--query",
+            "药明康德十大流通股东情况",
+        ]
+    )
+    limit_up_result = run_command(
+        [
+            "--state-path",
+            str(state_path),
+            "smart-query",
+            "--query",
+            "今天 A 股 涨停板 都有哪些",
+        ]
+    )
+
+    assert realtime_result["ok"] is True
+    assert realtime_result["data"]["intent"] == "quote_realtime"
+    assert realtime_result["data"]["entity"]["symbol"] == "600519.SH"
+    assert realtime_result["data"]["request"]["payload"]["codes"] == "600519.SH"
+
+    assert index_result["ok"] is True
+    assert index_result["data"]["intent"] == "market_snapshot"
+    assert index_result["data"]["request"]["payload"]["codes"] == "000300.SH"
+
+    assert holding_result["ok"] is True
+    assert holding_result["data"]["intent"] == "generic_smart_query"
+    assert holding_result["data"]["entity"]["symbol"] == "603259.SH"
+    assert holding_result["data"]["request"]["payload"] == {
+        "searchstring": "药明康德十大流通股东情况",
+        "searchtype": "stock",
+    }
+
+    assert limit_up_result["ok"] is True
+    assert limit_up_result["data"]["intent"] == "limit_up_screen"
+    assert limit_up_result["data"]["request"]["payload"] == {
+        "searchstring": "今天 A 股 涨停板 都有哪些",
+        "searchtype": "stock",
+    }
+
+    api_calls = [call for call in calls if call["method"] == "api_call"]
+    assert [call["endpoint"] for call in api_calls] == [
+        "/real_time_quotation",
+        "/real_time_quotation",
+        "/smart_stock_picking",
+        "/smart_stock_picking",
+    ]
+    assert all(call["access_token"] == "access-from-refresh" for call in api_calls)
+    assert all(call["token_source"] == "cache" for call in api_calls)
 
 
 def test_skill_package_contains_required_files():
-    assert Path("tonghuashun-ifind/SKILL.md").exists()
-    assert Path("tonghuashun-ifind/agents/openai.yaml").exists()
+    assert Path("tonghuashun-ifind-skill/SKILL.md").exists()
+    assert Path("tonghuashun-ifind-skill/agents/openai.yaml").exists()
     assert Path("scripts/install_skill.sh").exists()
 
 
@@ -712,7 +1064,7 @@ def test_cli_auth_set_tokens_runs_under_system_python3(tmp_path):
     result = subprocess.run(
         [
             "/usr/bin/python3",
-            "tonghuashun-ifind/scripts/ifind_cli.py",
+            "tonghuashun-ifind-skill/scripts/ifind_cli.py",
             "--state-path",
             str(tmp_path / "token_state.json"),
             "auth-set-tokens",

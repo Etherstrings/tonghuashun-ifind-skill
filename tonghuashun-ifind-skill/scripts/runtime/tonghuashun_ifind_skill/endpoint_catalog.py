@@ -10,7 +10,7 @@ class EndpointSpec:
     category: str
     description: str
     example_payload: dict[str, object]
-    supports_public_fallback: bool = False
+    requires_ifind_auth: bool = True
     notes: tuple[str, ...] = ()
 
     def to_dict(self) -> dict[str, object]:
@@ -20,7 +20,7 @@ class EndpointSpec:
             "category": self.category,
             "description": self.description,
             "example_payload": self.example_payload,
-            "supports_public_fallback": self.supports_public_fallback,
+            "requires_ifind_auth": self.requires_ifind_auth,
             "notes": list(self.notes),
         }
 
@@ -45,10 +45,9 @@ _ENDPOINT_SPECS = {
             "searchstring": "今天的A股涨停数据",
             "searchtype": "stock",
         },
-        supports_public_fallback=True,
         notes=(
-            "涨停和榜单问法有免费公开源兜底。",
-            "画像和资金流当前没有稳定公开源兜底。",
+            "所有数据来自 iFinD；使用前必须完成鉴权。",
+            "涨停、榜单、画像和资金流都通过 iFinD smart_stock_picking 透传。",
         ),
     ),
     "report_query": EndpointSpec(
@@ -64,8 +63,16 @@ _ENDPOINT_SPECS = {
         category="core_api",
         description="日期序列、交易日历等时间轴能力透传接口。",
         example_payload={
+            "codes": "000001.SH",
             "startdate": "2026-04-01",
             "enddate": "2026-04-30",
+            "functionpara": {"Days": "Tradedays", "Fill": "Omit"},
+            "indipara": [
+                {
+                    "indicator": "ths_close_price_stock",
+                    "indiparams": ["", "100", ""],
+                }
+            ],
         },
     ),
     "real_time_quote": EndpointSpec(
@@ -73,9 +80,14 @@ _ENDPOINT_SPECS = {
         endpoint="/real_time_quotation",
         category="market_data",
         description="实时行情原始接口，适合单股或指数快照。",
-        example_payload={"codes": "600519.SH,000300.SH"},
-        supports_public_fallback=True,
-        notes=("免费兜底使用腾讯财经公开行情。",),
+        example_payload={
+            "codes": "600519.SH,000300.SH",
+            "indicators": (
+                "open,high,low,latest,changeRatio,change,preClose,volume,"
+                "amount,turnoverRatio,volumeRatio,amplitude,pb"
+            ),
+        },
+        notes=("所有行情数据来自 iFinD；不再回退到公开行情源。",),
     ),
     "history_quote": EndpointSpec(
         name="history_quote",
@@ -88,8 +100,7 @@ _ENDPOINT_SPECS = {
             "startdate": "2026-04-21",
             "enddate": "2026-04-21",
         },
-        supports_public_fallback=True,
-        notes=("免费兜底使用腾讯财经历史行情。",),
+        notes=("所有历史行情数据来自 iFinD；不再回退到公开行情源。",),
     ),
     "limit_up_screen": EndpointSpec(
         name="limit_up_screen",
@@ -100,8 +111,7 @@ _ENDPOINT_SPECS = {
             "searchstring": "今天的A股涨停数据",
             "searchtype": "stock",
         },
-        supports_public_fallback=True,
-        notes=("免费兜底使用东方财富涨停池。",),
+        notes=("所有涨停数据来自 iFinD smart_stock_picking。",),
     ),
     "leaderboard_screen": EndpointSpec(
         name="leaderboard_screen",
@@ -112,8 +122,7 @@ _ENDPOINT_SPECS = {
             "searchstring": "A股成交额榜前十",
             "searchtype": "stock",
         },
-        supports_public_fallback=True,
-        notes=("免费兜底使用东方财富排行榜。",),
+        notes=("所有榜单数据来自 iFinD smart_stock_picking。",),
     ),
     "fundamental_basic": EndpointSpec(
         name="fundamental_basic",
@@ -124,7 +133,7 @@ _ENDPOINT_SPECS = {
             "searchstring": "宁德时代基本面",
             "searchtype": "stock",
         },
-        notes=("当前没有稳定公开源兜底。",),
+        notes=("所有基本面数据来自 iFinD smart_stock_picking。",),
     ),
     "entity_profile": EndpointSpec(
         name="entity_profile",
@@ -135,7 +144,7 @@ _ENDPOINT_SPECS = {
             "searchstring": "贵州茅台主营业务是什么",
             "searchtype": "stock",
         },
-        notes=("当前没有稳定公开源兜底。",),
+        notes=("所有画像数据来自 iFinD smart_stock_picking。",),
     ),
     "capital_flow": EndpointSpec(
         name="capital_flow",
@@ -146,7 +155,32 @@ _ENDPOINT_SPECS = {
             "searchstring": "今天主力资金流入前十",
             "searchtype": "stock",
         },
-        notes=("当前没有稳定公开源兜底。",),
+        notes=("所有资金流数据来自 iFinD smart_stock_picking。",),
+    ),
+    "a_share_common_query": EndpointSpec(
+        name="a_share_common_query",
+        endpoint="/smart_stock_picking",
+        category="routed_capability",
+        description="A 股用户常见自然语言查询入口；覆盖公告、研报、龙虎榜、两融、北向、股东、持仓、分红、解禁、停复牌、概念板块、新股和交易日等问法。",
+        example_payload={
+            "searchstring": "贵州茅台最近分红、十大股东和北向持股情况",
+            "searchtype": "stock",
+        },
+        notes=(
+            "这些问法保留用户原始自然语言交给 iFinD smart_stock_picking。",
+            "如果 iFinD 返回权限不足或无法处理，直接反馈 iFinD 失败，不切换公开源。",
+        ),
+    ),
+    "generic_smart_query": EndpointSpec(
+        name="generic_smart_query",
+        endpoint="/smart_stock_picking",
+        category="routed_capability",
+        description="自然语言泛化查询入口；当本地规则没有稳定命中特定能力时，将用户原问题交给 iFinD smart_stock_picking。",
+        example_payload={
+            "searchstring": "筛一下新能源车产业链里市盈率低于30且近一个月放量的股票",
+            "searchtype": "stock",
+        },
+        notes=("这是 smart-query 的自然语言兜底入口，但数据仍然只来自 iFinD。",),
     ),
 }
 

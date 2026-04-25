@@ -93,7 +93,10 @@ def test_api_call_forwards_headers_payload_and_timeout(
     )
 
     request = fake_session.requests[-1]
-    assert request["headers"] == {"access_token": "access-demo"}
+    assert request["headers"] == {
+        "Content-Type": "application/json",
+        "access_token": "access-demo",
+    }
     assert request["json"] == {"codes": "300750.SZ", "k": 1}
     assert request["timeout"] == 12.5
 

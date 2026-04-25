@@ -7,6 +7,7 @@ from datetime import timezone
 import argparse
 import json
 from pathlib import Path
+import re
 import sys
 
 
@@ -18,15 +19,6 @@ if _RUNTIME_DIR.is_dir():
 
 
 DEFAULT_BASE_URL = "https://quantapi.51ifind.com/api/v1"
-DEFAULT_LOGIN_URL = (
-    "https://upass.51ifind.com/login?act=loginByIframe&view=bilingual&isIframe=1&auto=0"
-    "&main=9&detail=0&pannel=1&source=ifind_quantapi&lang=cn&redir=%2F%2Fquantapi"
-    ".51ifind.com%2Fquantapi_upass%2Fapi%2Fapi_web_verify"
-)
-DEFAULT_USERNAME_SELECTOR = 'input[name="username"]'
-DEFAULT_PASSWORD_SELECTOR = 'input[name="password"]'
-DEFAULT_SUBMIT_SELECTOR = 'button[type="submit"]'
-DEFAULT_BROWSER_EXECUTABLE = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -59,8 +51,8 @@ def run_command(argv: list[str]) -> dict[str, object]:
     try:
         if args.command == "auth-set-tokens":
             return _handle_auth_set_tokens(args, state_path)
-        if args.command == "auth-login":
-            return _handle_auth_login(args, state_path)
+        if args.command == "auth-set-refresh-token":
+            return _handle_auth_set_refresh_token(args, state_path)
         if args.command == "endpoint-list":
             return _handle_endpoint_list()
         if args.command in {
@@ -107,36 +99,18 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    auth_login = subparsers.add_parser("auth-login")
-    auth_login.add_argument("--username", required=True)
-    auth_login.add_argument("--password", required=True)
-    auth_login.add_argument("--login-url", default=DEFAULT_LOGIN_URL)
-    auth_login.add_argument("--username-selector", default=DEFAULT_USERNAME_SELECTOR)
-    auth_login.add_argument("--password-selector", default=DEFAULT_PASSWORD_SELECTOR)
-    auth_login.add_argument("--submit-selector", default=DEFAULT_SUBMIT_SELECTOR)
-    auth_login.add_argument(
-        "--browser-executable",
-        default=DEFAULT_BROWSER_EXECUTABLE,
-    )
-
     auth_set = subparsers.add_parser("auth-set-tokens")
     auth_set.add_argument("--access-token", required=True)
     auth_set.add_argument("--refresh-token", required=True)
     auth_set.add_argument("--expires-at", default=None)
 
+    auth_refresh = subparsers.add_parser("auth-set-refresh-token")
+    auth_refresh.add_argument("--refresh-token", required=True)
+    auth_refresh.add_argument("--base-url", default=DEFAULT_BASE_URL)
+
     api_common = argparse.ArgumentParser(add_help=False)
     api_common.add_argument("--base-url", default=DEFAULT_BASE_URL)
     api_common.add_argument("--payload", default="{}")
-    api_common.add_argument("--username", default=None)
-    api_common.add_argument("--password", default=None)
-    api_common.add_argument("--login-url", default=DEFAULT_LOGIN_URL)
-    api_common.add_argument("--username-selector", default=DEFAULT_USERNAME_SELECTOR)
-    api_common.add_argument("--password-selector", default=DEFAULT_PASSWORD_SELECTOR)
-    api_common.add_argument("--submit-selector", default=DEFAULT_SUBMIT_SELECTOR)
-    api_common.add_argument(
-        "--browser-executable",
-        default=DEFAULT_BROWSER_EXECUTABLE,
-    )
 
     api_call = subparsers.add_parser("api-call", parents=[api_common])
     api_call.add_argument("--endpoint", required=True)
@@ -195,28 +169,23 @@ def _handle_auth_set_tokens(
     )
 
 
-def _handle_auth_login(
+def _handle_auth_set_refresh_token(
     args: argparse.Namespace,
     state_path: Path,
 ) -> dict[str, object]:
+    from tonghuashun_ifind_skill.auth import exchange_refresh_token
     from tonghuashun_ifind_skill.client import build_envelope
+    from tonghuashun_ifind_skill.state import TokenStateStore
 
-    auth = _build_auth_manager(
-        state_path=state_path,
-        username=args.username,
-        password=args.password,
-        login_url=args.login_url,
-        username_selector=args.username_selector,
-        password_selector=args.password_selector,
-        submit_selector=args.submit_selector,
-        browser_executable=args.browser_executable,
-        base_url=DEFAULT_BASE_URL,
+    bundle = exchange_refresh_token(
+        args.refresh_token,
+        base_url=args.base_url,
     )
-    bundle, token_source = auth.login_with_browser()
+    TokenStateStore(state_path).save(bundle)
     return build_envelope(
         ok=True,
-        endpoint="/auth/login",
-        token_source=token_source,
+        endpoint="/auth/set-refresh-token",
+        token_source="refresh",
         data={"stored": True, "expires_at": bundle.expires_at},
     )
 
@@ -244,13 +213,6 @@ def _handle_api_command(
 
     auth = _build_auth_manager(
         state_path=state_path,
-        username=args.username,
-        password=args.password,
-        login_url=args.login_url,
-        username_selector=args.username_selector,
-        password_selector=args.password_selector,
-        submit_selector=args.submit_selector,
-        browser_executable=args.browser_executable,
         base_url=args.base_url,
     )
     bundle, token_source = auth.resolve_tokens()
@@ -308,8 +270,7 @@ def _handle_routed_query_command(
 ) -> dict[str, object]:
     from tonghuashun_ifind_skill.client import IFindClient
     from tonghuashun_ifind_skill.client import build_envelope
-    from tonghuashun_ifind_skill.fallback import TencentStockFallbackClient
-    from tonghuashun_ifind_skill.routing import build_fundamental_plan
+    from tonghuashun_ifind_skill.llm_routing import build_llm_route_plan
     from tonghuashun_ifind_skill.routing import build_history_plan
     from tonghuashun_ifind_skill.routing import build_market_snapshot_plan
     from tonghuashun_ifind_skill.routing import build_realtime_plan
@@ -317,19 +278,24 @@ def _handle_routed_query_command(
     from tonghuashun_ifind_skill.routing import extract_entity_from_search_payload
     from tonghuashun_ifind_skill.routing import resolve_common_index_entity
 
+    if args.command == "smart-query" and _is_blank_or_punctuation_query(args.query):
+        return build_envelope(
+            ok=False,
+            endpoint="/manual_lookup",
+            token_source="cli",
+            error_type="manual_api_lookup_required",
+            error_message="请输入明确的股票、指数、指标、日期或筛选条件；空白或纯标点无法路由到 iFinD。",
+            data={
+                "intent": "manual_lookup",
+                "note": "blank_or_punctuation_query",
+            },
+        )
+
     auth = _build_auth_manager(
         state_path=state_path,
-        username=args.username,
-        password=args.password,
-        login_url=args.login_url,
-        username_selector=args.username_selector,
-        password_selector=args.password_selector,
-        submit_selector=args.submit_selector,
-        browser_executable=args.browser_executable,
         base_url=args.base_url,
     )
     client = IFindClient(base_url=args.base_url)
-    fallback_client = TencentStockFallbackClient()
     auth_cache: dict[str, object] = {}
 
     def ensure_auth() -> tuple[object, str]:
@@ -342,35 +308,48 @@ def _handle_routed_query_command(
         auth_cache["token_source"] = resolved_token_source
         return resolved_bundle, resolved_token_source
 
+    try:
+        bundle, token_source = ensure_auth()
+    except Exception as exc:
+        return build_envelope(
+            ok=False,
+            endpoint=_command_endpoint(args),
+            token_source="cli",
+            error_type="auth_required",
+            error_message=_auth_required_message(exc),
+        )
+
     def entity_lookup(text: str):
         common_index = resolve_common_index_entity(text)
         if common_index is not None:
             return common_index
-        try:
-            bundle, token_source = ensure_auth()
-        except Exception:
-            return fallback_client.search_entity(text)
         payload = {
             "searchstring": f"{text} 股票代码 股票简称",
             "searchtype": "stock",
         }
         result = client.smart_stock_picking(payload, bundle.access_token, token_source)
         if not result.get("ok"):
-            return fallback_client.search_entity(text)
+            return None
         raw_payload = result.get("data")
         if not isinstance(raw_payload, dict):
-            return fallback_client.search_entity(text)
+            return None
         entity = extract_entity_from_search_payload(text, raw_payload)
         if entity is not None:
             return entity
-        return fallback_client.search_entity(text)
+        return None
 
     if args.command == "smart-query":
-        plan = build_route_plan(
+        plan = build_llm_route_plan(
             args.query,
             entity_lookup=entity_lookup,
             today=date.today(),
         )
+        if plan is None:
+            plan = build_route_plan(
+                args.query,
+                entity_lookup=entity_lookup,
+                today=date.today(),
+            )
     elif args.command == "quote-realtime":
         plan = build_route_plan(
             f"{args.symbol} 最新价",
@@ -421,24 +400,6 @@ def _handle_routed_query_command(
             },
         )
 
-    try:
-        bundle, token_source = ensure_auth()
-    except Exception as exc:
-        fallback_result = _execute_public_fallback(
-            fallback_client=fallback_client,
-            plan=plan,
-            reason=_sanitize_exception(exc),
-        )
-        if fallback_result is not None:
-            return fallback_result
-        return build_envelope(
-            ok=False,
-            endpoint=plan.endpoint or "/cli",
-            token_source="cli",
-            error_type="runtime_failed",
-            error_message=_sanitize_exception(exc),
-        )
-
     if args.command == "fundamental-basic" or plan.intent == "fundamental_basic":
         return _execute_fundamental_plan(
             client=client,
@@ -453,32 +414,15 @@ def _handle_routed_query_command(
         bundle.access_token,
         token_source,
     )
-    if not result.get("ok"):
-        fallback_result = _execute_public_fallback(
-            fallback_client=fallback_client,
-            plan=plan,
-            reason=_result_error_message(result),
-        )
-        if fallback_result is not None:
-            return fallback_result
     return _attach_route_metadata(result, plan)
 
 
 def _build_auth_manager(
     *,
     state_path: Path,
-    username: str | None,
-    password: str | None,
-    login_url: str,
-    username_selector: str,
-    password_selector: str,
-    submit_selector: str,
-    browser_executable: str | None,
     base_url: str,
 ) -> "AuthManager":
     from tonghuashun_ifind_skill.auth import AuthManager
-    from tonghuashun_ifind_skill.browser_login import BrowserLoginRunner
-    from tonghuashun_ifind_skill.browser_login import PlaywrightLoginAdapter
     from tonghuashun_ifind_skill.auth import exchange_refresh_token
     from tonghuashun_ifind_skill.models import TokenBundle
 
@@ -488,23 +432,9 @@ def _build_auth_manager(
             base_url=base_url,
         )
 
-    def browser_login() -> TokenBundle:
-        if not username or not password:
-            raise RuntimeError("username/password required for browser login")
-        adapter = PlaywrightLoginAdapter(
-            login_url=login_url,
-            username_selector=username_selector,
-            password_selector=password_selector,
-            submit_selector=submit_selector,
-            browser_executable=browser_executable,
-        )
-        runner = BrowserLoginRunner(adapter)
-        return runner.login_and_capture(username, password)
-
     return AuthManager.create(
         state_path=state_path,
         refresh_exchange=refresh_exchange,
-        browser_login=browser_login,
     )
 
 
@@ -519,7 +449,7 @@ def _parse_payload(payload: str) -> dict[str, object]:
 
 
 def _default_state_path() -> Path:
-    return Path.home() / ".openclaw" / "tonghuashun-ifind" / "token_state.json"
+    return Path.home() / ".openclaw" / "tonghuashun-ifind-skill" / "token_state.json"
 
 
 def _default_expiry() -> str:
@@ -529,6 +459,22 @@ def _default_expiry() -> str:
 
 def _sanitize_exception(exc: Exception) -> str:
     return f"request failed: {exc.__class__.__name__}"
+
+
+def _is_blank_or_punctuation_query(query: str) -> bool:
+    return not re.search(r"[A-Za-z0-9\u4e00-\u9fff]", query or "")
+
+
+def _auth_required_message(exc: Exception) -> str:
+    return (
+        "iFinD authentication is required before querying data. "
+        "Ask the user to open the iFinD Super Command client account details page, "
+        "or open https://quantapi.10jqka.com.cn/gwstatic/static/ds_web/"
+        "super-command-web/index.html#/AccountDetails, log in, copy refresh_token, "
+        "then run auth-set-refresh-token. Do not ask for the iFinD username or "
+        "password. If the user already has both tokens, run auth-set-tokens. Detail: "
+        f"{_sanitize_exception(exc)}"
+    )
 
 
 def _attach_route_metadata(
@@ -648,45 +594,9 @@ def _execute_fundamental_plan(
     )
 
 
-def _execute_public_fallback(
-    *,
-    fallback_client,
-    plan,
-    reason: str,
-) -> dict[str, object] | None:
-    from tonghuashun_ifind_skill.client import build_envelope
-
-    if plan.intent not in {
-        "quote_realtime",
-        "quote_history",
-        "market_snapshot",
-        "limit_up_screen",
-        "leaderboard_screen",
-    }:
-        return None
-    try:
-        fallback_data = fallback_client.execute_plan(plan)
-    except Exception:
-        return None
-    provider_name = _fallback_provider_name(fallback_data)
-    result = build_envelope(
-        ok=True,
-        endpoint=plan.endpoint or "/fallback",
-        token_source=_fallback_token_source(provider_name),
-        data=None,
-    )
-    fallback_note = f"iFinD 查询失败，已回退到公开数据源。原因: {reason}"
-    return _attach_route_metadata(
-        result,
-        plan,
-        response_data=fallback_data,
-        note=fallback_note,
-    )
-
-
 def _command_endpoint(args: argparse.Namespace) -> str:
-    if args.command == "auth-login":
-        return "/auth/login"
+    if args.command == "auth-set-refresh-token":
+        return "/auth/set-refresh-token"
     if args.command == "auth-set-tokens":
         return "/auth/set-tokens"
     if args.command == "api-call":
@@ -715,35 +625,6 @@ def _command_endpoint(args: argparse.Namespace) -> str:
     if args.command == "fundamental-basic":
         return "/smart_stock_picking"
     return "/cli"
-
-
-def _result_error_message(result: dict[str, object]) -> str:
-    error = result.get("error")
-    if isinstance(error, dict):
-        message = error.get("message")
-        if isinstance(message, str) and message.strip():
-            return message.strip()
-    return "iFinD request failed"
-
-
-def _fallback_provider_name(fallback_data: object) -> str | None:
-    if not isinstance(fallback_data, dict):
-        return None
-    provider = fallback_data.get("provider")
-    if not isinstance(provider, dict):
-        return None
-    name = provider.get("name")
-    if isinstance(name, str) and name.strip():
-        return name.strip()
-    return None
-
-
-def _fallback_token_source(provider_name: str | None) -> str:
-    if provider_name == "tencent_finance":
-        return "fallback:tencent"
-    if provider_name == "eastmoney":
-        return "fallback:eastmoney"
-    return "fallback:public"
 
 
 if __name__ == "__main__":

@@ -4,12 +4,11 @@ build-backend = "hatchling.build"
 
 [project]
 name = "tonghuashun-ifind-skill"
-version = "0.4.4"
-description = "Tonghuashun iFinD skill for OpenClaw with deterministic routing and Tencent fallback for common stock and index queries."
+version = "0.5.0"
+description = "tonghuashun-ifind-skill for OpenClaw with mandatory iFinD authentication and optional LLM-assisted natural language routing."
 readme = "README.md"
 requires-python = ">=3.9"
 dependencies = [
-    "playwright>=1.43.0",
     "requests>=2.31.0",
 ]
 
@@ -20,12 +19,12 @@ dev = [
 
 [tool.pytest.ini_options]
 pythonpath = [
-    "tonghuashun-ifind/scripts/runtime",
+    "tonghuashun-ifind-skill/scripts/runtime",
 ]
 
 [tool.hatch.build.targets.wheel]
 packages = [
-    "tonghuashun-ifind/scripts/runtime/tonghuashun_ifind_skill",
+    "tonghuashun-ifind-skill/scripts/runtime/tonghuashun_ifind_skill",
 ]
 
 [tool.uv]

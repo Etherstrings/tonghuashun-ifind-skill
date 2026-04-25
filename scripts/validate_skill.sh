@@ -3,8 +3,8 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 STATE_FILE="$(mktemp "${TMPDIR:-/tmp}/ifind-skill-state.XXXXXX.json")"
-INSTALL_TARGET="${OPENCLAW_SKILL_DIR:-$HOME/.openclaw/workspace/skills/tonghuashun-ifind}"
-UV_CACHE_DIR="${UV_CACHE_DIR:-${TMPDIR:-/tmp}/tonghuashun-ifind-uv-cache}"
+INSTALL_TARGET="${OPENCLAW_SKILL_DIR:-$HOME/.openclaw/workspace/skills/tonghuashun-ifind-skill}"
+UV_CACHE_DIR="${UV_CACHE_DIR:-${TMPDIR:-/tmp}/tonghuashun-ifind-skill-uv-cache}"
 
 cleanup() {
   rm -f "${STATE_FILE}"
@@ -18,7 +18,7 @@ export UV_CACHE_DIR
 
 uv run pytest -q
 
-uv run python tonghuashun-ifind/scripts/ifind_cli.py \
+uv run python tonghuashun-ifind-skill/scripts/ifind_cli.py \
   --state-path "${STATE_FILE}" \
   auth-set-tokens \
   --access-token "demo-access-token" \

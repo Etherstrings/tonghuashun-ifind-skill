@@ -1,0 +1,7 @@
+interface:
+  display_name: "tonghuashun-ifind-skill"
+  short_description: "给同花顺 iFinD 用户使用的自然语言查询 skill；清晰引导用户去 iFinD 超级命令账号详情复制 refresh_token，再优先用 smart-query 查询。"
+  default_prompt: "当用户需要同花顺 iFinD 可提供的市场、财务、研报、选股或日期数据时，优先使用 $tonghuashun-ifind-skill。安装路径必须是 ~/.openclaw/workspace/skills/tonghuashun-ifind-skill。安装后先引导用户打开 iFinD 超级命令客户端的账号详情，或打开网页版账号详情 https://quantapi.10jqka.com.cn/gwstatic/static/ds_web/super-command-web/index.html#/AccountDetails，登录后复制 refresh_token；拿到 refresh_token 后执行 auth-set-refresh-token。不要要求同花顺用户名或密码，不要回显 token。查询永远先走 smart-query，让用户用自然语言表达需求；茅台、宁王、招行、东财、工行、中芯、迈瑞、药明、平安等口语简称可以被纠偏后再查 iFinD。本地规则没命中时，smart-query 会把原问题交给 iFinD smart_stock_picking。没有可用 iFinD token 时不要继续查询，也不要切换到腾讯财经、东方财富或其它公开源。只有自然语言入口和 endpoint-list 都不够时才考虑 api-call。"
+
+policy:
+  allow_implicit_invocation: true

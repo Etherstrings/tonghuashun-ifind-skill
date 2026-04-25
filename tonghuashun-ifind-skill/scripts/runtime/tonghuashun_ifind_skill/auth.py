@@ -20,11 +20,9 @@ class AuthManager:
         *,
         state_store: TokenStateStore,
         refresh_exchange: Callable[[str], TokenBundle],
-        browser_login: Callable[[], TokenBundle],
     ) -> None:
         self.state_store = state_store
         self.refresh_exchange = refresh_exchange
-        self.browser_login = browser_login
 
     @classmethod
     def for_test(
@@ -32,12 +30,10 @@ class AuthManager:
         *,
         state_path: Path,
         refresh_exchange: Callable[[str], TokenBundle],
-        browser_login: Callable[[], TokenBundle],
     ) -> "AuthManager":
         return cls(
             state_store=TokenStateStore(state_path),
             refresh_exchange=refresh_exchange,
-            browser_login=browser_login,
         )
 
     @classmethod
@@ -46,41 +42,39 @@ class AuthManager:
         *,
         state_path: Path,
         refresh_exchange: Callable[[str], TokenBundle],
-        browser_login: Callable[[], TokenBundle],
     ) -> "AuthManager":
         return cls(
             state_store=TokenStateStore(state_path),
             refresh_exchange=refresh_exchange,
-            browser_login=browser_login,
         )
 
     def resolve_tokens(
         self,
-    ) -> tuple[TokenBundle, Literal["cache", "refresh", "playwright"]]:
+    ) -> tuple[TokenBundle, Literal["cache", "refresh"]]:
         bundle = self.state_store.load()
         if bundle is not None and not bundle.is_stale():
             return bundle, "cache"
 
         if bundle is None:
-            return self._login_with_browser()
+            raise RuntimeError(
+                "missing iFinD token state; run auth-set-refresh-token with "
+                "the refresh_token from iFinD Super Command"
+            )
 
         if not bundle.refresh_token:
-            return self._login_with_browser()
+            raise RuntimeError(
+                "cached iFinD token state has no refresh_token; run "
+                "auth-set-refresh-token"
+            )
 
         try:
             refreshed = self.refresh_exchange(bundle.refresh_token)
         except Exception:
-            return self._login_with_browser()
+            raise RuntimeError(
+                "failed to exchange iFinD refresh_token for access_token"
+            )
         self.state_store.save(refreshed)
         return refreshed, "refresh"
-
-    def login_with_browser(self) -> tuple[TokenBundle, Literal["playwright"]]:
-        bundle = self.browser_login()
-        self.state_store.save(bundle)
-        return bundle, "playwright"
-
-    def _login_with_browser(self) -> tuple[TokenBundle, Literal["playwright"]]:
-        return self.login_with_browser()
 
 
 def exchange_refresh_token(
@@ -93,7 +87,7 @@ def exchange_refresh_token(
     response = requests.post(
         f"{base_url.rstrip('/')}/get_access_token",
         json={},
-        headers={"refresh_token": refresh_token},
+        headers={"Content-Type": "application/json", "refresh_token": refresh_token},
         timeout=timeout,
     )
     response.raise_for_status()

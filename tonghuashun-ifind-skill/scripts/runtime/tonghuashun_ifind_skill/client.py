@@ -35,7 +35,7 @@ class IFindClient:
     ) -> dict[str, object]:
         normalized_endpoint = self._normalize_endpoint(endpoint)
         url = f"{self.base_url}{normalized_endpoint}"
-        headers = {"access_token": access_token}
+        headers = {"Content-Type": "application/json", "access_token": access_token}
         timestamp = format_timestamp(self._now())
 
         try:
@@ -168,7 +168,7 @@ class IFindClient:
     def _default_session() -> Any:
         try:
             import requests
-        except ModuleNotFoundError as exc:  # pragma: no cover - fallback for runtime
+        except ModuleNotFoundError as exc:  # pragma: no cover - runtime dependency guard
             raise RuntimeError("requests is required for default sessions") from exc
         return requests.Session()
 

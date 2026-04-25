@@ -2,8 +2,8 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-SOURCE_DIR="${ROOT_DIR}/tonghuashun-ifind"
-TARGET_DIR="${OPENCLAW_SKILL_DIR:-$HOME/.openclaw/workspace/skills/tonghuashun-ifind}"
+SOURCE_DIR="${ROOT_DIR}/tonghuashun-ifind-skill"
+TARGET_DIR="${OPENCLAW_SKILL_DIR:-$HOME/.openclaw/workspace/skills/tonghuashun-ifind-skill}"
 
 mkdir -p "$(dirname "${TARGET_DIR}")"
 rm -rf "${TARGET_DIR}"
