@@ -146,7 +146,7 @@ export IFIND_ROUTE_LLM_MODEL="gpt-4o-mini"
 
 ## 外部页面
 
-- ClawHub / OpenClaw: `https://clawhub.ai/etherstrings/tonghuashun-ifind-skill`
+- ClawHub / OpenClaw: `https://clawhub.ai/etherstrings/tonghuashun-ifind`
 - Hermes Agent GitHub skill 源: `https://github.com/Etherstrings/tonghuashun-ifind-skill/tree/main/tonghuashun-ifind-skill`
 
 详细示例见 [references/usage.md](references/usage.md)，能力边界先看 [references/capability-matrix.md](references/capability-matrix.md)，路由规则见 [references/routing.md](references/routing.md)，常见用户问法示例见 [references/use-cases.md](references/use-cases.md)。如果要查看当前已封装的命名接口，直接运行 `endpoint-list`。

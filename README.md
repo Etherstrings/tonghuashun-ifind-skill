@@ -208,13 +208,13 @@ LLM 只输出 iFinD 路由计划；低置信度、无效 JSON 或模型调用失
 当前两个外部 skill 入口已经固定下来：
 
 - ClawHub / OpenClaw 页面：
-  `https://clawhub.ai/etherstrings/tonghuashun-ifind-skill`
+  `https://clawhub.ai/etherstrings/tonghuashun-ifind`
 - Hermes Agent GitHub skill 源：
   `https://github.com/Etherstrings/tonghuashun-ifind-skill/tree/main/tonghuashun-ifind-skill`
 
 补充说明：
 
-- 当前准备发布版本：`0.5.0`
+- 当前准备发布版本：`0.5.1`
 - Hermes 侧直接使用 GitHub skill 源，不再指向历史分支 PR
 
 ---
@@ -352,10 +352,10 @@ bash scripts/validate_skill.sh
 npx --yes clawhub@latest login
 
 clawhub publish tonghuashun-ifind-skill \
-  --slug tonghuashun-ifind-skill \
+  --slug tonghuashun-ifind \
   --name "tonghuashun-ifind-skill" \
-  --version 0.5.0 \
-  --changelog "改为强制 iFinD 鉴权，移除公开免费源兜底，并新增可选 LLM 自然语言路由增强。"
+  --version 0.5.1 \
+  --changelog "修正 ClawHub 发布入口，保留既有 tonghuashun-ifind slug，并继续使用强制 iFinD token 鉴权和自然语言路由。"
 ```
 
 ---
