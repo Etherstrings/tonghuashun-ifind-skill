@@ -1,0 +1,7 @@
+interface:
+  display_name: "同花顺 iFinD 接入"
+  short_description: "优先通过 iFinD 获取个股最新价、历史走势、大盘快照和基础财务指标，常见问题先走 smart-query。"
+  default_prompt: "当用户需要同花顺 iFinD 可提供的市场、财务、研报、选股或日期数据时，优先使用 $tonghuashun-ifind。常见问题先走 smart-query；只有在常见路由未覆盖时才阅读路由文档后再考虑 api-call。"
+
+policy:
+  allow_implicit_invocation: true
